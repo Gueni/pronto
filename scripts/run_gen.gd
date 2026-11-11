@@ -144,6 +144,8 @@ static func make_stage(act, row, type, stage_seed, depth):
 
 	if type == "boss":
 		var kind = Game.ACTS[act].boss
+		if not LevelData.BOSS_ARENAS.has(kind):
+			kind = "boss"
 		stage.theme = "swamp" if kind == "queen" else "castle"
 		stage.title = "QUEEN SLIME'S SWAMP" if kind == "queen" else "KING PINKY'S THRONE"
 		stage.chunks = [LevelData.START, LevelData.BOSS_ARENAS[kind]]

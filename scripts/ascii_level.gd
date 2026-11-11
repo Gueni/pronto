@@ -411,17 +411,6 @@ func _waves(delta):
 	Game.sfx("explosion", 1.3, -6.0)
 	Game.banner.emit("WAVE %d / %d" % [wave_i, waves.size()])
 	get_tree().create_timer(1.3, false).timeout.connect(func(): Game.banner.emit(""))
-A
-rep($a, <<'A', <<'B');
-func _process(delta):
-	super(delta)
-	if camera:
-A
-func _process(delta):
-	super(delta)
-	if not waves.is_empty() and not finished and not Game.busy:
-		_waves(delta)
-	if camera:
 
 
 func _platform(pos, travel):
@@ -481,6 +470,8 @@ func _parallax(factor, z):
 
 func _process(delta):
 	super(delta)
+	if not waves.is_empty() and not finished and not Game.busy:
+		_waves(delta)
 	if camera:
 		var cx = camera.get_screen_center_position().x
 		for s in scenery:
