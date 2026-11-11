@@ -1,5 +1,7 @@
 extends CharacterBody2D
 ## A hero. `slot` selects which entry of Game.players (character + input device) drives it.
+## Every hero has a size, a passive, a special move (dash button), a mana bar and an
+## ultimate (see Game.CHARACTERS).
 
 const Rock = preload("res://scripts/rock.gd")
 
@@ -10,6 +12,10 @@ const AIR_JUMP_VELOCITY = -235.0
 const COYOTE_TIME = 0.1
 const JUMP_BUFFER = 0.12
 const INVULN_TIME = 1.6
+const ULT_COLORS = {
+	"rush": Color(0.35, 0.8, 1.0), "slam": Color(1.0, 1.0, 1.0), "wings": Color(0.8, 0.55, 1.0),
+	"firewall": Color(0.45, 1.0, 0.55), "storm": Color(1.0, 0.7, 0.3),
+}
 
 var slot = 0
 var level = null
@@ -32,6 +38,24 @@ var bubble_time = 0.0
 var ch
 var inp = "solo"
 var bubble: Label
+var size = 1.0
+var shield = 0.0       # seconds left of Gueni's firewall
+var ult = ""           # id of the ultimate currently running
+var ult_time = 0.0
+var ult_tick = 0.0
+var ult_dir = 1
+var slam_falling = false
+var fx_time = 0.0
+var dash_cd = 0.0      # cooldown of the hero's special move
+var dash_time = 0.0
+var dash_vec = Vector2.ZERO
+var air_dash = true    # one air move per jump
+var diving = false
+var dive_dir = 1
+var pounding = false
+var wall_time = 0.0
+var wall_dir = 0
+var wall_lock = 0.0
 
 @onready var animated_sprite = $AnimatedSprite2D
 @onready var shape = $CollisionShape2D
@@ -47,10 +71,20 @@ func _ready():
 	Game.apply_look(animated_sprite, ch)
 	animated_sprite.play("idle")
 
+	# Every hero has their own size. The body stays under one tile so nobody gets stuck.
+	size = ch.get("size", 1.0)
+	animated_sprite.scale = Vector2(size, size)
+	animated_sprite.position = Vector2(1, -16) * size
+	var circle = CircleShape2D.new()
+	circle.radius = min(7.07 * size, 7.8)
+	shape.shape = circle
+	shape.position = Vector2(0, -circle.radius - 0.9)
+	var head = -24.0 * size
+
 	bubble = Game.label("", 8, ch.color)
 	bubble.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	bubble.size = Vector2(160, 10)
-	bubble.position = Vector2(-80, -46 - slot * 9 if Game.players.size() > 1 else -40)
+	bubble.position = Vector2(-80, head - 28 - slot * 9 if Game.players.size() > 1 else head - 18)
 	bubble.z_index = 30
 	bubble.visible = false
 	add_child(bubble)
@@ -58,7 +92,7 @@ func _ready():
 		var tag = Game.label("P%d" % (slot + 1), 8, Game.PLAYER_COLORS[slot])
 		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		tag.size = Vector2(40, 10)
-		tag.position = Vector2(-20, -36)
+		tag.position = Vector2(-20, head - 18)
 		add_child(tag)
 	if Game.players[slot].out:
 		dead = true
@@ -73,25 +107,50 @@ func _physics_process(delta):
 		bubble_time -= delta
 		if bubble_time <= 0:
 			bubble.visible = false
-	if dead:
+	if dead or slot >= Game.players.size():
 		return
+
+	fx_time += delta
+	if shield > 0:
+		shield -= delta
+	if ult != "":
+		_ult_process(delta)
+	elif not locked:
+		add_mana(Game.MANA_REGEN * (1.0 + 0.5 * Game.up("mana")) * delta)
+	queue_redraw()
 
 	if invuln > 0:
 		invuln -= delta
 		animated_sprite.visible = invuln <= 0 or int(invuln * 20) % 2 == 0
 	throw_cd -= delta
 	buffer -= delta
+	dash_cd -= delta
+	wall_time -= delta
+	wall_lock -= delta
 
 	var on_floor = is_on_floor()
 	if on_floor:
 		coyote = COYOTE_TIME
-		air_jumps = 1
+		air_jumps = 1 + Game.up("shoes")
+		air_dash = true
+		diving = false
+		if pounding:
+			_pound_land()
 	else:
 		coyote -= delta
-		var g = gravity
+		var g = gravity * (level.grav if level else 1.0)
 		if velocity.y > 0:
 			g *= ch.get("fall", 1.0)
+		if ult == "wings":
+			g *= 0.4
 		velocity.y += g * delta
+		if ult == "wings":
+			velocity.y = min(velocity.y, 70.0)
+	if ult == "slam":
+		if not slam_falling and velocity.y >= 0:
+			slam_falling = true
+		if slam_falling:
+			velocity.y = 620.0
 
 	# Get the input direction: -1, 0, 1
 	var direction = 0.0
@@ -100,23 +159,55 @@ func _physics_process(delta):
 		var axis = Input.get_axis(inp + "_left", inp + "_right")
 		if abs(axis) > 0.3:
 			direction = sign(axis)
-		running = Input.is_action_pressed(inp + "_action")
+		running = Input.is_action_pressed(inp + "_action") or ult == "rush"
 		if Input.is_action_just_pressed(inp + "_jump"):
 			buffer = JUMP_BUFFER
-		if Input.is_action_just_released(inp + "_jump") and velocity.y < -120:
+		if Input.is_action_just_released(inp + "_jump") and velocity.y < -120 and ult != "slam":
 			velocity.y *= 0.5
 		if Input.is_action_just_pressed(inp + "_action"):
 			_throw()
+		if Input.is_action_just_pressed(inp + "_ult"):
+			_ultimate()
+		if Input.is_action_just_pressed(inp + "_dash"):
+			_move()
+		# Down in the air: drop fast (Gueni turns it into a ground pound).
+		if Input.is_action_just_pressed(inp + "_down") and not on_floor and ult == "" and not pounding:
+			if ch.move.id == "charge":
+				pounding = true
+				Game.sfx("tap", 0.5)
+			else:
+				velocity.y = max(velocity.y, 320.0)
+		# Shee glides while jump is held.
+		if ch.move.id == "blink" and not on_floor and ult == "" and velocity.y > 30.0 and Input.is_action_pressed(inp + "_jump"):
+			velocity.y = 30.0
+		# Eli clings to walls and can jump off them.
+		if ch.move.id == "dive" and not on_floor and is_on_wall() and direction != 0 and direction == -sign(get_wall_normal().x):
+			velocity.y = min(velocity.y, 40.0)
+			wall_time = 0.12
+			wall_dir = int(sign(get_wall_normal().x))
+			diving = false
+	if pounding:
+		velocity.y = 540.0
 
 	# Handle jump (with coyote time, jump buffering and one air jump).
-	if buffer > 0:
-		if coyote > 0:
+	if buffer > 0 and ult != "slam":
+		if wall_time > 0 and coyote <= 0:
+			velocity = Vector2(wall_dir * 210.0, JUMP_VELOCITY * ch.get("jump", 1.0))
+			facing = wall_dir
+			wall_time = 0
+			wall_lock = 0.16
+			buffer = 0
+			air_jumps = 1 + Game.up("shoes")
+			Game.sfx("jump", 1.2)
+			_dust()
+		elif coyote > 0:
 			velocity.y = JUMP_VELOCITY * ch.get("jump", 1.0)
 			coyote = 0
 			buffer = 0
 			Game.sfx("jump")
-		elif air_jumps > 0:
-			air_jumps -= 1
+		elif air_jumps > 0 or ult == "wings":
+			if ult != "wings":
+				air_jumps -= 1
 			velocity.y = AIR_JUMP_VELOCITY * ch.get("jump", 1.0)
 			buffer = 0
 			Game.sfx("jump", 1.35)
@@ -127,15 +218,47 @@ func _physics_process(delta):
 	var accel = 650.0
 	if on_floor:
 		accel = (1000.0 if direction != 0 else 1300.0) * (level.slip if level else 1.0)
+	if ult == "rush":
+		target *= 1.8
+		accel = 2400.0
+	elif ult == "slam":
+		target *= 0.5
+	if wall_lock > 0:
+		accel = 150.0
 	velocity.x = move_toward(velocity.x, target, accel * delta)
 
+	# Special moves that take over the movement for a moment.
+	if dash_time > 0:
+		dash_time -= delta
+		if ch.move.id == "charge":
+			velocity.x = dash_vec.x
+			_blast(14.0 * size + 4.0, 1)
+		else:
+			velocity = dash_vec
+		if dash_time <= 0:
+			velocity.x *= 0.45
+		elif int(dash_time * 60) % 3 == 0:
+			_afterimage()
+	if diving:
+		velocity = Vector2(dive_dir * 250.0, 340.0)
+
 	# Same-screen multiplayer: don't run away from your friends.
-	if level and level.players.size() > 1:
+	if level and (level.players.size() > 1 or level.scroll > 0):
 		var lim = level.x_limits(self)
 		if (global_position.x <= lim[0] and velocity.x < 0) or (global_position.x >= lim[1] and velocity.x > 0):
 			velocity.x = 0
 
 	move_and_slide()
+	if ult == "slam" and slam_falling and is_on_floor():
+		_slam_land()
+	# Auto-scrolling levels: the left edge of the screen shoves you along, or squashes you.
+	if level and level.scroll > 0:
+		var edge = level.scroll_left()
+		if global_position.x < edge - 14.0:
+			die()
+			return
+		if global_position.x < edge + 4.0:
+			velocity.x = max(velocity.x, level.scroll + 60.0)
 
 	# Bump blocks from below.
 	for i in get_slide_collision_count():
@@ -144,6 +267,10 @@ func _physics_process(delta):
 			var body = c.get_collider()
 			if body and body.has_method("bump"):
 				body.bump(self)
+		elif dash_time > 0 and ch.move.id == "charge" and abs(c.get_normal().x) > 0.7:
+			var crate = c.get_collider()
+			if crate and crate.get("kind") == "crate":
+				crate.bump(self)
 
 	# Flip the Sprite
 	if direction > 0:
@@ -189,7 +316,7 @@ func _throw():
 	r.from_player = true
 	r.velocity = Vector2(facing * 250.0 + velocity.x * 0.3, -90.0)
 	get_parent().add_child(r)
-	r.global_position = global_position + Vector2(facing * 8, -12)
+	r.global_position = global_position + Vector2(facing * 8, -12 * size)
 	Game.sfx("tap", 0.8)
 
 
@@ -210,7 +337,7 @@ func _dust():
 
 ## Hit by an enemy / hazard. Loses a heart, or dies.
 func hurt(from_x = null):
-	if dead or invuln > 0 or locked:
+	if dead or invuln > 0 or locked or protected():
 		return
 	var p = Game.players[slot]
 	p.hearts -= 1
@@ -235,6 +362,12 @@ func die():
 		return
 	dead = true
 	invuln = 0
+	ult = ""
+	dash_time = 0.0
+	diving = false
+	pounding = false
+	shield = 0.0
+	queue_redraw()
 	animated_sprite.visible = true
 	Game.players[slot].hearts = 0
 	Game.players[slot].rocks = ch.get("always_rocks", false)
@@ -269,8 +402,25 @@ func respawn(pos):
 ## Called when stomping an enemy.
 func bounce():
 	velocity.y = -330.0 if Input.is_action_pressed(inp + "_jump") else -230.0
-	air_jumps = 1
+	air_jumps = 1 + Game.up("shoes")
+	air_dash = true
+	diving = false
+	pounding = false
+	add_mana(6)
 	say("stomp")
+
+
+## Launched by a spring pad. Returns false if the hero ignores it.
+func spring():
+	if ult == "slam":
+		return false
+	velocity.y = -470.0
+	air_jumps = 1 + Game.up("shoes")
+	air_dash = true
+	diving = false
+	pounding = false
+	coyote = 0
+	return true
 
 
 func heal():
@@ -299,5 +449,262 @@ func say(event, chance = -1.0):
 	bubble.text = lines[randi() % lines.size()]
 	bubble.visible = true
 	bubble_time = 1.8
-	if ch.get("laugh", false) and event in ["mock", "stomp", "win"]:
+	if ch.get("laugh", false) and event in ["mock", "stomp", "win", "ult"]:
 		Game.laugh()
+
+
+# ---------------------------------------------------------------- mana + ultimates
+
+func protected():
+	return shield > 0 or ult == "rush" or ult == "slam" or dash_time > 0
+
+
+## Damage dealt by landing on an enemy's head.
+func stomp_power():
+	return (1 + Game.up("boots")) * (2 if pounding else 1)
+
+
+## The hero's own movement trick (dash button).
+func _move():
+	if dash_cd > 0 or dead or ult == "slam" or pounding:
+		return
+	var on_floor = is_on_floor()
+	match ch.move.id:
+		"dash":
+			if not on_floor and not air_dash:
+				return
+			air_dash = on_floor
+			dash_time = 0.16
+			dash_vec = Vector2(facing * 430.0, 0)
+			Game.sfx("jump", 1.7)
+		"dive":
+			if on_floor:
+				return
+			diving = true
+			dive_dir = facing
+			Game.sfx("jump", 0.8)
+		"blink":
+			var dir = Vector2(Input.get_axis(inp + "_left", inp + "_right"), Input.get_axis(inp + "_up", inp + "_down"))
+			if dir.length() < 0.3:
+				dir = Vector2(facing, 0)
+			Game.ring(global_position + Vector2(0, -10 * size), 18.0, ch.color, 0.25)
+			move_and_collide(dir.normalized() * 72.0)
+			Game.ring(global_position + Vector2(0, -10 * size), 24.0, ch.color, 0.25)
+			velocity.y = min(velocity.y, 0.0)
+			invuln = max(invuln, 0.25)
+			Game.sfx("power_up", 2.2, -8.0)
+		"charge":
+			dash_time = 0.45
+			dash_vec = Vector2(facing * 290.0, 0)
+			Game.sfx("explosion", 1.6, -8.0)
+		"rockjump":
+			if not on_floor and not air_dash:
+				return
+			air_dash = on_floor
+			velocity.y = -345.0
+			coyote = 0
+			var r = Rock.new()
+			r.from_player = true
+			r.big = true
+			r.velocity = Vector2(0, 280.0)
+			get_parent().add_child(r)
+			r.global_position = global_position + Vector2(0, -8)
+			Game.sfx("explosion", 1.8, -8.0)
+			_dust()
+	dash_cd = ch.move.cd * (1.0 - 0.25 * Game.up("dash"))
+
+
+func _pound_land():
+	pounding = false
+	Game.shake(5.0)
+	Game.sfx("explosion", 0.9, -2.0)
+	Game.ring(global_position, 55.0, ch.color, 0.3)
+	_blast(55.0, 1)
+
+
+func add_mana(amount):
+	var p = Game.players[slot]
+	var cost = ch.ult.cost
+	var before = p.mana
+	p.mana = min(p.mana + amount, Game.MAX_MANA)
+	if before < cost and p.mana >= cost and not dead:
+		Game.popup("ULT READY!", global_position + Vector2(0, -24 * size), Color(1.0, 0.9, 0.3))
+		Game.sfx("power_up", 1.8, -8.0)
+
+
+func _ultimate():
+	var p = Game.players[slot]
+	var info = ch.ult
+	if ult != "" or dead:
+		return
+	if p.mana < info.cost:
+		Game.sfx("tap", 0.5, -4.0)
+		Game.popup("NO MANA", global_position + Vector2(0, -24 * size), Color(0.5, 0.7, 1.0))
+		return
+	p.mana -= info.cost
+	ult = info.id
+	ult_tick = 0.0
+	ult_dir = facing
+	var col = ULT_COLORS[ult]
+	Game.flash(col)
+	Game.shake(4.0)
+	Game.sfx("power_up", 0.6, 2.0)
+	Game.sfx("explosion", 1.3, -4.0)
+	Game.ring(global_position + Vector2(0, -10 * size), 46.0, col)
+	Game.popup(info.name + "!", global_position + Vector2(0, -34 * size), col)
+	say("ult", 1.0)
+	match ult:
+		"rush":
+			ult_time = 3.0
+		"slam":
+			ult_time = 3.0
+			slam_falling = false
+			velocity.y = -440.0
+			coyote = 0
+		"wings":
+			ult_time = 5.0
+			velocity.y = min(velocity.y, -200.0)
+		"storm":
+			ult_time = 2.4
+		"firewall":
+			ult_time = 0.4
+			var team = level.players if level else [self]
+			for q in team:
+				if q.dead:
+					continue
+				q.shield = 4.0
+				Game.players[q.slot].hearts = Game.max_hearts(q.slot)
+				Game.popup("SHIELD!", q.global_position + Vector2(0, -24 * q.size), col)
+			Game.stats_changed.emit()
+			_blast(85.0, 1)
+
+
+func _ult_process(delta):
+	ult_time -= delta
+	ult_tick -= delta
+	match ult:
+		"rush":
+			_blast(16.0 * size + 6.0, 2)
+			if ult_tick <= 0:
+				ult_tick = 0.05
+				_afterimage()
+		"wings":
+			if ult_tick <= 0:
+				ult_tick = 0.4
+				var e = _nearest_enemy(170.0)
+				if e:
+					_bolt(e)
+					e.damage(false, 1)
+		"storm":
+			if ult_tick <= 0:
+				ult_tick = 0.2
+				var r = Rock.new()
+				r.from_player = true
+				r.big = true
+				r.power = 2
+				r.velocity = Vector2(ult_dir * randf_range(10.0, 70.0), 240.0)
+				get_parent().add_child(r)
+				r.global_position = global_position + Vector2(ult_dir * randf_range(10.0, 190.0), -125.0)
+				Game.sfx("tap", 0.5, -4.0)
+	if ult_time <= 0:
+		ult = ""
+
+
+func _slam_land():
+	ult = ""
+	Game.shake(9.0)
+	Game.flash(Color.WHITE, 0.3, 0.2)
+	Game.sfx("explosion", 0.7, 3.0)
+	Game.ring(global_position, 115.0, Color.WHITE, 0.4)
+	Game.ring(global_position, 70.0, ch.color, 0.3)
+	_blast(115.0, 2)
+	velocity.y = -160.0
+	invuln = max(invuln, 0.6)
+
+
+## Damages every enemy within `radius` of the hero's middle.
+func _blast(radius, amount):
+	var mid = global_position + Vector2(0, -10 * size)
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e.dead or not e.awake:
+			continue
+		if e.global_position.distance_to(mid) < radius + 12.0 * e.scale.x:
+			e.damage(false, amount)
+
+
+func _nearest_enemy(max_dist):
+	var best = null
+	var best_d = max_dist
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e.dead or not e.awake or e.invuln > 0:
+			continue
+		var d = e.global_position.distance_to(global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+
+func _bolt(e):
+	var from = global_position + Vector2(0, -14 * size)
+	var to = e.global_position
+	var line = Line2D.new()
+	line.width = 2.0
+	line.default_color = Color(0.95, 0.85, 1.0)
+	line.z_index = 20
+	var n = 6
+	for i in n + 1:
+		var pt = from.lerp(to, i / float(n))
+		if i > 0 and i < n:
+			pt += Vector2(randf_range(-7, 7), randf_range(-7, 7))
+		line.add_point(pt)
+	get_parent().add_child(line)
+	var tw = line.create_tween()
+	tw.tween_property(line, "modulate:a", 0.0, 0.2)
+	tw.tween_callback(line.queue_free)
+	Game.sfx("tap", 2.2, -2.0)
+
+
+func _afterimage():
+	var s = Sprite2D.new()
+	s.texture = animated_sprite.sprite_frames.get_frame_texture(animated_sprite.animation, animated_sprite.frame)
+	s.flip_h = animated_sprite.flip_h
+	s.scale = animated_sprite.scale
+	s.material = animated_sprite.material
+	s.modulate = Color(0.5, 0.85, 1.0, 0.55)
+	s.z_index = 4
+	get_parent().add_child(s)
+	s.global_position = animated_sprite.global_position
+	var tw = s.create_tween()
+	tw.tween_property(s, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(s.queue_free)
+
+
+## Mana bar over the head, shield bubble and ultimate aura.
+func _draw():
+	if dead or slot >= Game.players.size():
+		return
+	var mid = Vector2(0, -11 * size)
+	if ult != "":
+		var c = ULT_COLORS[ult]
+		draw_circle(mid, 15.0 * size + sin(fx_time * 18.0) * 2.0, Color(c.r, c.g, c.b, 0.28))
+	if ult == "wings":
+		var flap = sin(fx_time * 16.0) * 5.0
+		for side in [-1, 1]:
+			draw_colored_polygon(PackedVector2Array([
+				mid + Vector2(side * 4, -2), mid + Vector2(side * 20, -10 + flap),
+				mid + Vector2(side * 15, 4 + flap * 0.4)]), Color(0.9, 0.8, 1.0, 0.85))
+	if shield > 0 and (shield > 1.2 or int(shield * 12) % 2 == 0):
+		var r = 16.0 * size + 2.0
+		draw_circle(mid, r, Color(0.4, 1.0, 0.6, 0.16))
+		draw_arc(mid, r, 0, TAU, 28, Color(0.6, 1.0, 0.7, 0.9), 1.0)
+	var p = Game.players[slot]
+	var cost = ch.ult.cost
+	var y = -24.0 * size - 5.0
+	draw_rect(Rect2(-9, y - 1, 18, 4), Color(0.04, 0.04, 0.1))
+	var full = p.mana >= cost
+	var col = Color(1.0, 0.85, 0.25) if full and int(fx_time * 6) % 2 == 0 else Color(0.3, 0.6, 1.0)
+	draw_rect(Rect2(-8, y, 16.0 * clamp(p.mana / cost, 0.0, 1.0), 2), col)
+	# Thin green line: the special move is ready when it is full.
+	var cd = max(ch.move.cd, 0.01)
+	draw_rect(Rect2(-8, y + 4, 16.0 * clamp(1.0 - dash_cd / cd, 0.0, 1.0), 1), Color(0.5, 1.0, 0.6))

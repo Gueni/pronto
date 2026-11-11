@@ -2,11 +2,10 @@ extends Control
 ## Hero select + join screen for same-screen multiplayer.
 ## Every input device (two keyboard halves, four gamepads) can join as one player.
 
-const CARD_W = 220
+const CARD_W = 226
 
 var slots = []       # [{device, char, ready}]
 var tag_boxes = []
-var quotes = []
 var sprites = []
 var status: Label
 var starting = false
@@ -23,30 +22,50 @@ func _ready():
 	add_child(center)
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var box = VBoxContainer.new()
-	box.add_theme_constant_override("separation", 22)
+	box.add_theme_constant_override("separation", 10)
 	center.add_child(box)
 
-	var title = Game.label("CHOOSE YOUR HERO", 48, Color(1.0, 0.92, 0.4), true)
+	var title = Game.label("CHOOSE YOUR HERO", 32, Color(1.0, 0.92, 0.4), true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 
+	# One card per hero: looks, size, passive and ultimate.
 	var stage = Control.new()
-	stage.custom_minimum_size = Vector2(CARD_W * Game.CHARACTERS.size(), 330)
+	stage.custom_minimum_size = Vector2(CARD_W * Game.CHARACTERS.size(), 452)
 	box.add_child(stage)
 	for i in Game.CHARACTERS.size():
 		var ch = Game.CHARACTERS[i]
 		var cx = CARD_W * i + CARD_W / 2
-		var s = Game.char_sprite(ch, "idle", 5.0)
-		s.position = Vector2(cx, 70)
+		var panel = ColorRect.new()
+		panel.color = Color(0.03, 0.05, 0.18, 0.45)
+		panel.position = Vector2(CARD_W * i + 4, 0)
+		panel.size = Vector2(CARD_W - 8, 452)
+		stage.add_child(panel)
+		var s = Game.char_sprite(ch, "idle", 3.2)
+		Game.stand(s, Vector2(cx, 112))
 		stage.add_child(s)
 		sprites.append(s)
-		_text(stage, ch.name, 24, ch.color, cx, 160, true)
-		_text(stage, ch.blurb, 16, Color.WHITE, cx, 196)
-		quotes.append(_text(stage, "\"%s\"" % ch.quote, 16, Color(0.8, 0.88, 1.0), cx, 224))
+
+		var card = VBoxContainer.new()
+		card.position = Vector2(CARD_W * i + 10, 116)
+		card.custom_minimum_size = Vector2(CARD_W - 20, 0)
+		card.size = Vector2(CARD_W - 20, 0)
+		card.add_theme_constant_override("separation", 5)
+		stage.add_child(card)
+		_line(card, ch.name, 24, ch.color, true)
+		_line(card, ch.blurb, 16, Color.WHITE)
+		_line(card, "SIZE: %s    HEARTS: %d" % [_size_name(ch.get("size", 1.0)), ch.get("hearts", 3)], 8, Color(0.8, 0.88, 1.0))
+		_line(card, "- PASSIVE -", 8, Color(0.5, 1.0, 0.6))
+		_line(card, ch.passive, 8, Color.WHITE)
+		_line(card, "- MOVE (DASH BUTTON) -", 8, Color(0.5, 0.85, 1.0))
+		_line(card, ch.move.name, 16, Color(0.5, 0.85, 1.0), true)
+		_line(card, ch.move.desc, 8, Color.WHITE)
+		_line(card, "- ULTIMATE (FULL MANA) -", 8, Color(1.0, 0.85, 0.3))
+		_line(card, ch.ult.name, 16, Color(1.0, 0.85, 0.3), true)
+		_line(card, ch.ult.desc, 8, Color.WHITE)
 		var tags = VBoxContainer.new()
-		tags.position = Vector2(cx - CARD_W / 2, 258)
-		tags.custom_minimum_size = Vector2(CARD_W, 0)
-		stage.add_child(tags)
+		tags.custom_minimum_size = Vector2(CARD_W - 20, 0)
+		card.add_child(tags)
 		tag_boxes.append(tags)
 
 	status = Game.label("", 16, Color(1.0, 0.92, 0.4))
@@ -54,22 +73,32 @@ func _ready():
 	box.add_child(status)
 	var help = Game.label(
 		"LEFT / RIGHT: PICK  -  JUMP: READY  -  ACTION: BACK  -  ESC: TITLE\n\n" +
-		"KEYS 1:   A  D  MOVE  +  W / SPACE  JUMP  +  F  ACTION\n" +
-		"KEYS 2:   ARROWS  MOVE  +  UP  JUMP  +  ENTER  ACTION\n" +
-		"GAMEPAD:   STICK  MOVE  +  (A)  JUMP  +  (X)  ACTION",
-		16, Color.WHITE)
+		"KEYS 1:  A D S MOVE - W JUMP - F ACTION - LEFT SHIFT DASH - E ULTIMATE\n" +
+		"KEYS 2:  ARROWS MOVE - UP JUMP - ENTER ACTION - RIGHT SHIFT DASH - RIGHT CTRL ULTIMATE\n" +
+		"GAMEPAD:  STICK MOVE - (A) JUMP - (X) ACTION - (B) DASH - (Y) ULTIMATE",
+		8, Color.WHITE)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(help)
 	_refresh()
 
 
-func _text(parent, text, font_size, color, cx, y, bold = false):
+func _line(parent, text, font_size, color, bold = false):
 	var l = Game.label(text, font_size, color, bold)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.size = Vector2(CARD_W, font_size + 4)
-	l.position = Vector2(cx - CARD_W / 2, y)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD
+	l.custom_minimum_size = Vector2(CARD_W - 20, 0)
 	parent.add_child(l)
 	return l
+
+
+func _size_name(s):
+	if s < 0.9:
+		return "SMALL"
+	if s < 1.1:
+		return "MEDIUM"
+	if s < 1.3:
+		return "BIG"
+	return "HUGE"
 
 
 func _find(device):

@@ -19,7 +19,7 @@ func _ready():
 	center.add_child(box)
 
 	_line(box, "SA77IT !  YOU WIN !" if win else "GAME OVER", 64, Color(0.3, 0.72, 1.0) if win else Color(1.0, 0.35, 0.35), true)
-	_line(box, "KING PINKY IS DEFEATED. THE HILLS ARE SAFE!" if win else "KING PINKY LAUGHS AT YOU...", 16, Color.WHITE)
+	_line(box, "QUEEN SLIME AND KING PINKY ARE DEFEATED!" if win else "KING PINKY LAUGHS AT YOU...", 16, Color.WHITE)
 
 	var stage_center = CenterContainer.new()
 	box.add_child(stage_center)
@@ -31,13 +31,13 @@ func _ready():
 	for i in Game.players.size():
 		var ch = Game.char_of(i)
 		pronto_here = pronto_here or ch.get("laugh", false)
-		var s = Game.char_sprite(ch, "run" if win else "hurt", 4.0)
+		var s = Game.char_sprite(ch, "run" if win else "hurt", 3.4)
 		if not win:
 			s.sprite_frames = s.sprite_frames.duplicate()
 			s.sprite_frames.set_animation_loop("hurt", true)
 			s.sprite_frames.set_animation_speed("hurt", 5)
 			s.play("hurt")
-		s.position = Vector2(75 + i * 150, 70)
+		Game.stand(s, Vector2(75 + i * 150, 134))
 		stage.add_child(s)
 	if pronto_here:
 		_line(box, "PRONTO: \"TOO EASY! PRONTO! HAHAHA!\"" if win else "PRONTO: \"I MEANT TO DO THAT. PRONTO.\"", 16, Game.CHARACTERS[0].color)

@@ -7,6 +7,9 @@ const Enemy = preload("res://scripts/enemy.gd")
 const Block = preload("res://scripts/block.gd")
 const Hazard = preload("res://scripts/hazard.gd")
 const MovingPlatform = preload("res://scripts/moving_platform.gd")
+const Spring = preload("res://scripts/spring.gd")
+const ManaOrb = preload("res://scripts/mana_orb.gd")
+const Crumble = preload("res://scripts/crumble.gd")
 
 const ROWS = 14
 const T = 16
@@ -40,6 +43,46 @@ var THEMES = {
 		"sky": [Color(0.07, 0.05, 0.12), Color(0.3, 0.1, 0.12)],
 		"hills": Color(0.16, 0.1, 0.17), "far": Color(0.12, 0.07, 0.14), "clouds": null,
 	},
+	"night": {
+		"top": Vector2i(0, 0), "fill": Vector2i(0, 1), "brick_top": Vector2i(1, 0), "brick": Vector2i(1, 1),
+		"question": Vector2i(0, 2), "tree": [Vector2i(0, 5), Vector2i(0, 4), Vector2i(0, 3)],
+		"bush": Vector2i(1, 5), "mushroom": Vector2i(7, 5), "sign": Vector2i(8, 3), "bridge": 0, "platform": 0,
+		"sky": [Color(0.04, 0.05, 0.16), Color(0.16, 0.2, 0.45)], "stars": true, "tint": Color(0.62, 0.68, 0.95),
+		"hills": Color(0.1, 0.16, 0.3), "far": Color(0.13, 0.2, 0.4), "clouds": Color(0.6, 0.65, 0.9, 0.25),
+		"plank": Color(0.45, 0.4, 0.6),
+	},
+	"swamp": {
+		"top": Vector2i(0, 0), "fill": Vector2i(0, 1), "brick_top": Vector2i(1, 0), "brick": Vector2i(1, 1),
+		"question": Vector2i(0, 2), "tree": [Vector2i(0, 5), Vector2i(0, 4), Vector2i(0, 3)],
+		"bush": Vector2i(1, 5), "mushroom": Vector2i(7, 5), "sign": Vector2i(8, 3), "bridge": 0, "platform": 0,
+		"sky": [Color(0.16, 0.26, 0.24), Color(0.5, 0.62, 0.4)], "tint": Color(0.72, 0.9, 0.68),
+		"hills": Color(0.2, 0.36, 0.26), "far": Color(0.3, 0.46, 0.34), "clouds": Color(0.8, 0.9, 0.7, 0.35),
+		"plank": Color(0.5, 0.55, 0.3),
+	},
+	"cave": {
+		"top": Vector2i(8, 0), "fill": Vector2i(8, 1), "brick_top": Vector2i(6, 1), "brick": Vector2i(6, 1),
+		"question": Vector2i(7, 2), "tree": [Vector2i(7, 7), Vector2i(7, 7), Vector2i(7, 7)],
+		"bush": Vector2i(8, 7), "mushroom": Vector2i(7, 7), "sign": Vector2i(8, 4), "bridge": 1, "platform": 3,
+		"sky": [Color(0.05, 0.04, 0.14), Color(0.16, 0.1, 0.32)], "tint": Color(0.8, 0.75, 1.0),
+		"hills": Color(0.13, 0.09, 0.26), "far": Color(0.1, 0.07, 0.2), "clouds": null,
+		"plank": Color(0.5, 0.45, 0.75),
+	},
+	"sky": {
+		"top": Vector2i(7, 0), "fill": Vector2i(6, 2), "brick_top": Vector2i(8, 0), "brick": Vector2i(8, 1),
+		"question": Vector2i(7, 2), "tree": [Vector2i(6, 5), Vector2i(6, 4), Vector2i(6, 3)],
+		"bush": Vector2i(6, 7), "mushroom": Vector2i(7, 8), "sign": Vector2i(8, 3), "bridge": 1, "platform": 3,
+		"sky": [Color(0.25, 0.5, 0.95), Color(1.0, 0.85, 0.8)], "tint": Color(1.0, 0.95, 1.0),
+		"hills": Color(1.0, 1.0, 1.0, 0.75), "far": Color(1.0, 0.92, 0.95, 0.55), "clouds": Color(1, 1, 1, 0.95),
+		"plank": Color(0.95, 0.95, 1.0),
+	},
+	"space": {
+		"top": Vector2i(8, 0), "fill": Vector2i(8, 1), "brick_top": Vector2i(6, 1), "brick": Vector2i(6, 1),
+		"question": Vector2i(7, 2), "tree": [Vector2i(7, 7), Vector2i(7, 7), Vector2i(7, 7)],
+		"bush": Vector2i(8, 7), "mushroom": Vector2i(7, 7), "sign": Vector2i(8, 4), "bridge": 1, "platform": 1,
+		"sky": [Color(0.01, 0.01, 0.05), Color(0.12, 0.05, 0.25)], "stars": true, "tint": Color(0.75, 0.85, 1.0),
+		"hills": Color(0.2, 0.2, 0.3), "far": Color(0.12, 0.12, 0.2), "clouds": null,
+		"plank": Color(0.5, 0.8, 1.0),
+	},
 }
 
 var theme
@@ -61,6 +104,8 @@ func build():
 	theme = THEMES[def.get("theme", "grass")]
 	time_limit = def.get("time", 300)
 	slip = def.get("slip", 1.0)
+	grav = def.get("gravity", 1.0)
+	scroll = def.get("scroll", 0.0)
 	texts = def.get("texts", [])
 	rows = assemble(def.chunks)
 	width = rows[0].length()
@@ -84,6 +129,8 @@ func build():
 	ground = TileMapLayer.new()
 	ground.tile_set = tileset
 	add_child(ground)
+	ground.modulate = theme.get("tint", Color.WHITE)
+	decor.modulate = theme.get("tint", Color.WHITE)
 
 	var backing = Backing.new()
 	backing.z_index = -2
@@ -189,6 +236,26 @@ func _spawn(c, x, y):
 			_platform(center, Vector2(80, 0))
 		"V":
 			_platform(center, Vector2(0, -48))
+		"E":
+			_platform(center, Vector2(0, -96))
+		"S":
+			_add(Spring.new(), center)
+		"*":
+			_add(ManaOrb.new(), center)
+		"D":
+			var plank = Crumble.new()
+			plank.tint = theme.get("plank", plank.tint)
+			_add(plank, center)
+		"B":
+			_enemy("bat", feet)
+		"k":
+			_enemy("spiky", feet)
+		"f":
+			_hazard("fire", center)
+		"r":
+			_enemy("charger", feet)
+		"Q":
+			_enemy("queen", feet)
 		"p":
 			_enemy("pinky", feet)
 		"w":
@@ -236,6 +303,11 @@ func _block(kind, pos):
 	add_child(b)
 
 
+func _add(node, pos):
+	node.position = pos
+	add_child(node)
+
+
 func _hazard(kind, pos):
 	var h = Hazard.new()
 	h.kind = kind
@@ -246,7 +318,7 @@ func _hazard(kind, pos):
 func _enemy(kind, feet):
 	var e = Enemy.new()
 	e.kind = kind
-	e.position = feet - Vector2(0, 32 if kind == "boss" else 16)
+	e.position = feet - Vector2(0, 16 * Enemy.SCALES.get(kind, 1.0))
 	add_child(e)
 
 
@@ -269,6 +341,10 @@ func _background():
 	var sky = Game.sky(theme.sky[0], theme.sky[1])
 	layer.add_child(sky)
 	sky.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if theme.get("stars", false):
+		var stars = Stars.new()
+		layer.add_child(stars)
+		stars.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var base = ROWS * T
 	if theme.clouds != null:
@@ -338,3 +414,23 @@ class Backing extends Node2D:
 		for c in cells:
 			var inset = 3 if c[1] else 0
 			draw_rect(Rect2(c[0].x * 16, c[0].y * 16 + inset, 16, 16 - inset), Color(0.13, 0.09, 0.13))
+
+
+## Twinkling stars on the sky layer (night / space themes).
+class Stars extends Control:
+	var t = 0.0
+
+	func _ready():
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _process(delta):
+		t += delta
+		queue_redraw()
+
+	func _draw():
+		var rng = RandomNumberGenerator.new()
+		rng.seed = 42
+		for i in 90:
+			var p = Vector2(rng.randf() * size.x, rng.randf() * size.y * 0.8)
+			var a = 0.45 + 0.4 * sin(t * (0.8 + rng.randf() * 2.0) + i)
+			draw_rect(Rect2(p, Vector2(2, 2) if i % 7 == 0 else Vector2(1.5, 1.5)), Color(1, 1, 0.9, a))

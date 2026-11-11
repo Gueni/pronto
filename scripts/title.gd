@@ -33,8 +33,8 @@ func _ready():
 	stage.custom_minimum_size = Vector2(700, 140)
 	stage_center.add_child(stage)
 	for i in Game.CHARACTERS.size():
-		var s = Game.char_sprite(Game.CHARACTERS[i], "run" if i == 0 else "idle", 4.0)
-		s.position = Vector2(70 + i * 140, 70)
+		var s = Game.char_sprite(Game.CHARACTERS[i], "run" if i == 0 else "idle", 3.4)
+		Game.stand(s, Vector2(70 + i * 140, 134))
 		stage.add_child(s)
 
 	var menu = Menu.new()
@@ -49,7 +49,7 @@ func _ready():
 	var best = Game.label("BEST SCORE  %06d" % Game.best_score, 16, Color(1, 1, 1))
 	best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(best)
-	var help = Game.label("1-4 PLAYERS ON ONE SCREEN     M: MUTE     F11: FULLSCREEN", 16, Color(0.15, 0.25, 0.5))
+	var help = Game.label("1-4 PLAYERS ON ONE SCREEN     M: MUTE     F11: WINDOW / FULLSCREEN", 16, Color(0.15, 0.25, 0.5))
 	help.add_theme_constant_override("outline_size", 0)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(help)

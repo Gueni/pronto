@@ -42,6 +42,8 @@ func bump(player):
 	match kind:
 		"coin", "multi":
 			Game.add_coin(global_position, true)
+			if player:
+				player.add_mana(3)
 			_coin_fx()
 		_:
 			var p = Pickup.new()

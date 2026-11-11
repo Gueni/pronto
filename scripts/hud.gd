@@ -12,6 +12,7 @@ var players_box: HBoxContainer
 var banner_l: Label
 var boss_box: VBoxContainer
 var boss_bar: ProgressBar
+var boss_name_l: Label
 var pause_panel: ColorRect
 var heart_tex
 var rock_tex
@@ -61,9 +62,9 @@ func _ready():
 	boss_box.offset_right = 220
 	boss_box.offset_top = -70
 	boss_box.offset_bottom = -24
-	var boss_name = Game.label("KING PINKY", 16, Color(1.0, 0.6, 0.85))
-	boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	boss_box.add_child(boss_name)
+	boss_name_l = Game.label("KING PINKY", 16, Color(1.0, 0.6, 0.85))
+	boss_name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_box.add_child(boss_name_l)
 	boss_bar = ProgressBar.new()
 	boss_bar.custom_minimum_size = Vector2(440, 16)
 	boss_bar.show_percentage = false
@@ -95,7 +96,7 @@ func _ready():
 	box.add_child(menu)
 	menu.setup(["RESUME", "RESTART LEVEL", "QUIT TO TITLE"])
 	menu.chosen.connect(_on_pause_choice)
-	var hint = Game.label("M: MUTE     F11: FULLSCREEN", 16, Color(0.7, 0.75, 0.85))
+	var hint = Game.label("MOVE:  SHIFT / PAD (B)        ULTIMATE:  E / RIGHT CTRL / PAD (Y)\nM: MUTE     F11: FULLSCREEN", 16, Color(0.7, 0.75, 0.85))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(hint)
 
@@ -125,7 +126,7 @@ func _icon(tex, color = Color.WHITE):
 
 func refresh():
 	score_l.text = "SCORE\n%06d" % Game.score
-	coin_l.text = "COINS\nx%02d" % Game.coins
+	coin_l.text = "GOLD\n%d" % Game.gold
 	world_l.text = "WORLD\n%s" % Game.level_def().name
 	lives_l.text = "LIVES\nx%d" % Game.lives
 	for c in players_box.get_children():
@@ -133,8 +134,11 @@ func refresh():
 	for i in Game.players.size():
 		var p = Game.players[i]
 		var ch = Game.char_of(i)
+		var col = VBoxContainer.new()
+		col.add_theme_constant_override("separation", 4)
 		var row = HBoxContainer.new()
 		row.add_theme_constant_override("separation", 4)
+		col.add_child(row)
 		var title = ch.name if Game.players.size() == 1 else "P%d %s" % [i + 1, ch.name]
 		var name_l = Game.label(title + " ", 16, Game.PLAYER_COLORS[i] if Game.players.size() > 1 else ch.color)
 		row.add_child(name_l)
@@ -145,10 +149,15 @@ func refresh():
 				row.add_child(_icon(heart_tex, Color.WHITE if h < p.hearts else Color(0.1, 0.1, 0.15, 0.7)))
 			if p.rocks:
 				row.add_child(_icon(rock_tex))
-		players_box.add_child(row)
+		if not p.out:
+			var bar = ManaBar.new()
+			bar.slot = i
+			col.add_child(bar)
+		players_box.add_child(col)
 
 
 func _on_boss(hp, max_hp):
+	boss_name_l.text = Game.boss_name
 	boss_box.visible = max_hp > 0 and hp > 0
 	if max_hp > 0:
 		boss_bar.max_value = max_hp
@@ -180,3 +189,36 @@ func _on_pause_choice(i):
 		Game.start_level(Game.level_index)
 	elif i == 2:
 		Game.goto_scene(Game.TITLE_SCENE)
+
+
+## A hero's mana bar. Turns gold (and says ULT!) once the ultimate is affordable.
+class ManaBar extends Control:
+	var slot = 0
+	var t = 0.0
+
+	func _ready():
+		custom_minimum_size = Vector2(170, 14)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _process(delta):
+		t += delta
+		queue_redraw()
+
+	func _draw():
+		if slot >= Game.players.size():
+			return
+		var mana = Game.players[slot].mana
+		var cost = Game.char_of(slot).ult.cost
+		var w = 120.0
+		var ready = mana >= cost
+		draw_rect(Rect2(0, 0, w + 4, 14), Color(0.04, 0.04, 0.1))
+		var fill = Color(0.25, 0.55, 1.0)
+		if ready:
+			fill = Color(1.0, 0.85, 0.25) if int(t * 5) % 2 == 0 else Color(1.0, 0.65, 0.2)
+		draw_rect(Rect2(2, 2, w * clamp(mana / Game.MAX_MANA, 0.0, 1.0), 10), fill)
+		draw_rect(Rect2(2, 2, w * clamp(mana / Game.MAX_MANA, 0.0, 1.0), 3), Color(1, 1, 1, 0.3))
+		# Notch: how much the ultimate costs.
+		var x = 2 + w * cost / Game.MAX_MANA
+		draw_rect(Rect2(x - 1, 0, 2, 14), Color(1, 1, 1, 0.9))
+		draw_string(Game.FONT, Vector2(w + 10, 12), "ULT!" if ready else "MANA", HORIZONTAL_ALIGNMENT_LEFT, -1, 8,
+				Color(1.0, 0.9, 0.3) if ready else Color(0.55, 0.75, 1.0))

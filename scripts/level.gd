@@ -19,6 +19,10 @@ var finished = false
 var time_up = false
 var kill_y = INF
 var slip = 1.0
+var grav = 1.0   # gravity multiplier for the heroes (low on the moon)
+var scroll = 0.0  # auto-scroll speed in px/s (0 = the camera follows the heroes)
+var scroll_x = 0.0
+var scroll_wait = 2.5
 var spawn_point = Vector2.ZERO
 var limits = null  # Rect2 of the level, or null for "no limits"
 
@@ -46,6 +50,7 @@ func setup():
 			old_cam.free()
 
 	var start = spawn_point if Game.checkpoint == null else Game.checkpoint
+	scroll_x = start.x
 	for slot in Game.players.size():
 		var p
 		if slot == 0 and base:
@@ -95,6 +100,10 @@ func _process(delta):
 	if finished or Game.busy:
 		return
 	Game.time_left -= delta
+	if scroll > 0:
+		scroll_wait -= delta
+		if scroll_wait <= 0:
+			scroll_x += scroll * delta
 	if Game.time_left <= 0 and not time_up:
 		time_up = true
 		Game.banner.emit("TIME UP!")
@@ -111,6 +120,8 @@ func living():
 
 ## [min x, max x] this hero may walk to without leaving friends off-screen.
 func x_limits(p):
+	if scroll > 0:
+		return [scroll_left() - 20.0, scroll_left() + camera.view_width() - 8.0]
 	var lo = -INF
 	var hi = INF
 	var spread = camera.max_spread()
@@ -119,6 +130,11 @@ func x_limits(p):
 			lo = max(lo, q.global_position.x - spread)
 			hi = min(hi, q.global_position.x + spread)
 	return [lo, hi]
+
+
+## World x of the left edge of the screen in an auto-scrolling level.
+func scroll_left():
+	return camera.get_screen_center_position().x - camera.view_width() * 0.5
 
 
 func player_dying(p):
@@ -150,6 +166,8 @@ func player_died(p):
 	var pos = spawn_point if Game.checkpoint == null else Game.checkpoint
 	if not alive.is_empty():
 		pos = alive[0].global_position + Vector2(0, -40)
+	elif scroll > 0:
+		pos = Vector2(camera.get_screen_center_position().x, 40)
 	p.respawn(pos)
 
 
