@@ -28,6 +28,7 @@ var overlay
 func _ready():
 	Game.ensure_players()
 	Game.hud.visible = false
+	Music.play_track("game")
 	vs = get_viewport_rect().size
 	for i in ROWS.size():
 		var layer = Control.new()
@@ -191,11 +192,11 @@ func _shoot(c):
 func _finish():
 	over = true
 	rocks.clear()
-	Game.gold += score
-	result = "TIME!\n\n%d GOLD WON" % score
+	var good = score >= 22
+	result = "TIME!\n\n%d GOLD WON" % score + ("\n\nSHARP SHOOTING: CHOOSE A BOON!" if good else "\n\n(22 OR MORE WINS A BOON)")
 	Game.sfx("power_up")
-	await get_tree().create_timer(3.0).timeout
-	Game.goto_scene(Game.TAVERN_SCENE)
+	await get_tree().create_timer(3.2).timeout
+	Game.node_done({"gold": score, "boons": 3 + Game.meta_level("luck") if good else 0})
 
 
 ## Sky, hills and the floor of the range with lines running to the horizon.

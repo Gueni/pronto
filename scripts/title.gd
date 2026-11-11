@@ -22,7 +22,7 @@ func _ready():
 	var title = Game.label("MR BLUE", 96, Color(0.3, 0.72, 1.0), true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
-	var sub = Game.label("PRONTO AND FRIENDS VS KING PINKY", 16, Color(1.0, 0.92, 0.5))
+	var sub = Game.label("A ROGUELIKE ROAD TRIP: PRONTO AND FRIENDS VS KING PINKY", 16, Color(1.0, 0.92, 0.5))
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub)
 
@@ -39,14 +39,12 @@ func _ready():
 
 	var menu = Menu.new()
 	box.add_child(menu)
-	items = ["START GAME"]
-	if Game.max_level > 0:
-		items.append("CONTINUE  WORLD %s" % Game.LevelData.LEVELS[Game.max_level].name)
-	items.append("QUIT")
+	Music.play_track("title")
+	items = ["START A RUN", "CAMP  (%d DINARS)" % Game.dinars, "QUIT"]
 	menu.setup(items)
 	menu.chosen.connect(_on_chosen)
 
-	var best = Game.label("BEST SCORE  %06d" % Game.best_score, 16, Color(1, 1, 1))
+	var best = Game.label("BEST DEPTH  %d      WINS  %d      BEST SCORE  %06d" % [Game.best_depth, Game.wins, Game.best_score], 16, Color(1, 1, 1))
 	best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(best)
 	var help = Game.label("1-4 PLAYERS ON ONE SCREEN     M: MUTE     F11: WINDOW / FULLSCREEN", 16, Color(0.15, 0.25, 0.5))
@@ -60,5 +58,4 @@ func _on_chosen(i):
 	if choice == "QUIT":
 		get_tree().quit()
 		return
-	Game.pending_start_level = Game.max_level if choice.begins_with("CONTINUE") else 0
-	Game.goto_scene(Game.SELECT_SCENE)
+	Game.goto_scene(Game.CAMP_SCENE if choice.begins_with("CAMP") else Game.SELECT_SCENE)

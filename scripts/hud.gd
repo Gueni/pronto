@@ -94,9 +94,9 @@ func _ready():
 	box.add_child(title)
 	var menu = Menu.new()
 	box.add_child(menu)
-	menu.setup(["RESUME", "RESTART LEVEL", "QUIT TO TITLE"])
+	menu.setup(["RESUME", "ABANDON RUN"])
 	menu.chosen.connect(_on_pause_choice)
-	var hint = Game.label("MOVE:  SHIFT / PAD (B)        ULTIMATE:  E / RIGHT CTRL / PAD (Y)\nM: MUTE     F11: FULLSCREEN", 16, Color(0.7, 0.75, 0.85))
+	var hint = Game.label("SANDAL: F / ENTER / (X)     MOVE: SHIFT / (B)     ULTIMATE: E / RIGHT CTRL / (Y)\nM: MUTE     F11: FULLSCREEN", 16, Color(0.7, 0.75, 0.85))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(hint)
 
@@ -127,7 +127,7 @@ func _icon(tex, color = Color.WHITE):
 func refresh():
 	score_l.text = "SCORE\n%06d" % Game.score
 	coin_l.text = "GOLD\n%d" % Game.gold
-	world_l.text = "WORLD\n%s" % Game.level_def().name
+	world_l.text = "STAGE\n%s" % Game.level_def().name
 	lives_l.text = "LIVES\nx%d" % Game.lives
 	for c in players_box.get_children():
 		c.queue_free()
@@ -186,9 +186,7 @@ func _on_pause_choice(i):
 		return
 	_set_paused(false)
 	if i == 1:
-		Game.start_level(Game.level_index)
-	elif i == 2:
-		Game.goto_scene(Game.TITLE_SCENE)
+		Game._end("gameover")
 
 
 ## A hero's mana bar. Turns gold (and says ULT!) once the ultimate is affordable.
@@ -208,7 +206,7 @@ class ManaBar extends Control:
 		if slot >= Game.players.size():
 			return
 		var mana = Game.players[slot].mana
-		var cost = Game.char_of(slot).ult.cost
+		var cost = Game.ult_cost(slot)
 		var w = 120.0
 		var ready = mana >= cost
 		draw_rect(Rect2(0, 0, w + 4, 14), Color(0.04, 0.04, 0.1))

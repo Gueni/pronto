@@ -57,7 +57,7 @@ func _ready():
 		_line(card, "SIZE: %s    HEARTS: %d" % [_size_name(ch.get("size", 1.0)), ch.get("hearts", 3)], 8, Color(0.8, 0.88, 1.0))
 		_line(card, "- PASSIVE -", 8, Color(0.5, 1.0, 0.6))
 		_line(card, ch.passive, 8, Color.WHITE)
-		_line(card, "- MOVE (DASH BUTTON) -", 8, Color(0.5, 0.85, 1.0))
+		_line(card, "- SPECIAL MOVE -", 8, Color(0.5, 0.85, 1.0))
 		_line(card, ch.move.name, 16, Color(0.5, 0.85, 1.0), true)
 		_line(card, ch.move.desc, 8, Color.WHITE)
 		_line(card, "- ULTIMATE (FULL MANA) -", 8, Color(1.0, 0.85, 0.3))
@@ -73,9 +73,9 @@ func _ready():
 	box.add_child(status)
 	var help = Game.label(
 		"LEFT / RIGHT: PICK  -  JUMP: READY  -  ACTION: BACK  -  ESC: TITLE\n\n" +
-		"KEYS 1:  A D S MOVE - W JUMP - F ACTION - LEFT SHIFT DASH - E ULTIMATE\n" +
-		"KEYS 2:  ARROWS MOVE - UP JUMP - ENTER ACTION - RIGHT SHIFT DASH - RIGHT CTRL ULTIMATE\n" +
-		"GAMEPAD:  STICK MOVE - (A) JUMP - (X) ACTION - (B) DASH - (Y) ULTIMATE",
+		"KEYS 1:  A D S MOVE - W JUMP - F SANDAL - LEFT SHIFT MOVE - E ULTIMATE\n" +
+		"KEYS 2:  ARROWS - UP JUMP - ENTER SANDAL - RIGHT SHIFT MOVE - RIGHT CTRL ULTIMATE\n" +
+		"GAMEPAD:  STICK - (A) JUMP - (X) SANDAL - (B) MOVE - (Y) ULTIMATE",
 		8, Color.WHITE)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(help)
@@ -193,4 +193,4 @@ func _start():
 	if list.size() == 1 and not list[0].input.begins_with("pad"):
 		list[0].input = "solo"   # alone on the keyboard: every key works
 	await get_tree().create_timer(0.6).timeout
-	Game.new_game(list, Game.pending_start_level)
+	Game.new_game(list)

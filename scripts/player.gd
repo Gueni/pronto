@@ -12,7 +12,9 @@ const AIR_JUMP_VELOCITY = -235.0
 const COYOTE_TIME = 0.1
 const JUMP_BUFFER = 0.12
 const INVULN_TIME = 1.6
+const Smoke = preload("res://scripts/smoke.gd")
 const ULT_COLORS = {
+	"decree": Color(1.0, 0.85, 0.3),
 	"rush": Color(0.35, 0.8, 1.0), "slam": Color(1.0, 1.0, 1.0), "wings": Color(0.8, 0.55, 1.0),
 	"firewall": Color(0.45, 1.0, 0.55), "storm": Color(1.0, 0.7, 0.3),
 }
@@ -56,6 +58,9 @@ var pounding = false
 var wall_time = 0.0
 var wall_dir = 0
 var wall_lock = 0.0
+var rage = 0.0         # Elli: seconds of fury left
+var guard_used = false # Carthage shield: one free hit per stage
+var props: Node2D
 
 @onready var animated_sprite = $AnimatedSprite2D
 @onready var shape = $CollisionShape2D
@@ -80,6 +85,10 @@ func _ready():
 	shape.shape = circle
 	shape.position = Vector2(0, -circle.radius - 0.9)
 	var head = -24.0 * size
+	props = Props.new()
+	props.hero = self
+	props.z_index = 1
+	add_child(props)
 
 	bubble = Game.label("", 8, ch.color)
 	bubble.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -111,6 +120,10 @@ func _physics_process(delta):
 		return
 
 	fx_time += delta
+	props.queue_redraw()
+	if rage > 0:
+		rage -= delta
+		animated_sprite.modulate = Color(1.0, 0.5, 0.45) if rage > 0 else ch.tint
 	if shield > 0:
 		shield -= delta
 	if ult != "":
@@ -172,7 +185,7 @@ func _physics_process(delta):
 			_move()
 		# Down in the air: drop fast (Gueni turns it into a ground pound).
 		if Input.is_action_just_pressed(inp + "_down") and not on_floor and ult == "" and not pounding:
-			if ch.move.id == "charge":
+			if ch.move.id == "smoke":
 				pounding = true
 				Game.sfx("tap", 0.5)
 			else:
@@ -215,6 +228,7 @@ func _physics_process(delta):
 
 	# Apply movement
 	var target = direction * (RUN_SPEED if running else WALK_SPEED) * ch.get("speed", 1.0)
+	target *= (1.0 + 0.06 * Game.up("dash")) * (0.93 if Game.up("couscous") > 0 else 1.0) * (1.25 if rage > 0 else 1.0)
 	var accel = 650.0
 	if on_floor:
 		accel = (1000.0 if direction != 0 else 1300.0) * (level.slip if level else 1.0)
@@ -306,15 +320,29 @@ func _physics_process(delta):
 		idle_time = 0.0
 
 
+## The action button: everyone throws a SHLEKA (sandal), the Tunisian way. Iheb throws bottles.
 func _throw():
-	if not Game.players[slot].rocks or throw_cd > 0:
+	if throw_cd > 0 or ult == "slam":
 		return
-	throw_cd = 0.35
+	var beer = ch.get("beer", false)
+	throw_cd = 0.4 if beer else 0.7
+	if Game.up("rapid") > 0:
+		throw_cd *= 0.5
+	if Game.players[slot].rocks:   # rock block: fast hands until you get hurt
+		throw_cd *= 0.6
 	anim_lock = 0.25
 	animated_sprite.play("throw")
 	var r = Rock.new()
 	r.from_player = true
-	r.velocity = Vector2(facing * 250.0 + velocity.x * 0.3, -90.0)
+	r.power = (1 + Game.up("shleka")) * (2 if rage > 0 else 1)
+	if beer:
+		r.look = "bottle"
+		r.velocity = Vector2(facing * 230.0 + velocity.x * 0.3, -120.0)
+	else:
+		r.look = "shleka"
+		r.grav = 70.0
+		r.life = 0.6
+		r.velocity = Vector2(facing * 270.0 + velocity.x * 0.3, -25.0)
 	get_parent().add_child(r)
 	r.global_position = global_position + Vector2(facing * 8, -12 * size)
 	Game.sfx("tap", 0.8)
@@ -339,6 +367,15 @@ func _dust():
 func hurt(from_x = null):
 	if dead or invuln > 0 or locked or protected():
 		return
+	if Game.up("guard") > 0 and not guard_used:
+		guard_used = true
+		invuln = 1.0
+		Game.popup("BLOCKED!", global_position + Vector2(0, -24 * size), Color(0.9, 0.8, 0.5))
+		Game.ring(global_position + Vector2(0, -10 * size), 22.0, Color(0.9, 0.8, 0.5))
+		Game.sfx("tap", 1.7)
+		return
+	if ch.get("rage", false):
+		rage = 6.0
 	var p = Game.players[slot]
 	p.hearts -= 1
 	p.rocks = ch.get("always_rocks", false)
@@ -461,7 +498,7 @@ func protected():
 
 ## Damage dealt by landing on an enemy's head.
 func stomp_power():
-	return (1 + Game.up("boots")) * (2 if pounding else 1)
+	return (1 + Game.up("boots")) * (2 if pounding or rage > 0 else 1)
 
 
 ## The hero's own movement trick (dash button).
@@ -493,6 +530,12 @@ func _move():
 			velocity.y = min(velocity.y, 0.0)
 			invuln = max(invuln, 0.25)
 			Game.sfx("power_up", 2.2, -8.0)
+		"smoke":
+			var cloud = Smoke.new()
+			get_parent().add_child(cloud)
+			cloud.global_position = global_position + Vector2(0, -12)
+			Game.sfx("jump", 0.5, -2.0)
+			say("idle", 0.5)
 		"charge":
 			dash_time = 0.45
 			dash_vec = Vector2(facing * 290.0, 0)
@@ -512,6 +555,9 @@ func _move():
 			Game.sfx("explosion", 1.8, -8.0)
 			_dust()
 	dash_cd = ch.move.cd * (1.0 - 0.25 * Game.up("dash"))
+	if Game.up("harissa") > 0:
+		Game.ring(global_position + Vector2(0, -10 * size), 36.0, Color(1.0, 0.35, 0.15), 0.3)
+		_blast(36.0, 1)
 
 
 func _pound_land():
@@ -524,7 +570,7 @@ func _pound_land():
 
 func add_mana(amount):
 	var p = Game.players[slot]
-	var cost = ch.ult.cost
+	var cost = Game.ult_cost(slot)
 	var before = p.mana
 	p.mana = min(p.mana + amount, Game.MAX_MANA)
 	if before < cost and p.mana >= cost and not dead:
@@ -566,6 +612,15 @@ func _ultimate():
 			velocity.y = min(velocity.y, -200.0)
 		"storm":
 			ult_time = 2.4
+		"decree":
+			# Everyone on screen stops and salutes the supreme leader.
+			ult_time = 0.6
+			for e in get_tree().get_nodes_in_group("enemies"):
+				if e.dead or not e.awake or e.global_position.distance_to(global_position) > 330:
+					continue
+				e.damage(false, 1)
+				e.stun = 1.5 if e.is_boss else 4.0
+				Game.popup("YES SIR!", e.global_position, col)
 		"firewall":
 			ult_time = 0.4
 			var team = level.players if level else [self]
@@ -602,6 +657,7 @@ func _ult_process(delta):
 				r.from_player = true
 				r.big = true
 				r.power = 2
+				r.look = "bottle"
 				r.velocity = Vector2(ult_dir * randf_range(10.0, 70.0), 240.0)
 				get_parent().add_child(r)
 				r.global_position = global_position + Vector2(ult_dir * randf_range(10.0, 190.0), -125.0)
@@ -699,7 +755,7 @@ func _draw():
 		draw_circle(mid, r, Color(0.4, 1.0, 0.6, 0.16))
 		draw_arc(mid, r, 0, TAU, 28, Color(0.6, 1.0, 0.7, 0.9), 1.0)
 	var p = Game.players[slot]
-	var cost = ch.ult.cost
+	var cost = Game.ult_cost(slot)
 	var y = -24.0 * size - 5.0
 	draw_rect(Rect2(-9, y - 1, 18, 4), Color(0.04, 0.04, 0.1))
 	var full = p.mana >= cost
@@ -708,3 +764,35 @@ func _draw():
 	# Thin green line: the special move is ready when it is full.
 	var cd = max(ch.move.cd, 0.01)
 	draw_rect(Rect2(-8, y + 4, 16.0 * clamp(1.0 - dash_cd / cd, 0.0, 1.0), 1), Color(0.5, 1.0, 0.6))
+
+
+## What makes each hero who they are, drawn in front of the sprite:
+## Shee's sunglasses, Iheb's beer, Gueni's smoke, Elli's fury.
+class Props extends Node2D:
+	var hero
+
+	func _draw():
+		var h = hero
+		if h.dead or not h.animated_sprite.visible:
+			return
+		var s = h.size
+		var f = h.facing
+		var ch = h.ch
+		if ch.get("shades", false):
+			draw_rect(Rect2(Vector2(1 + f * 5.5 - 5.5, -20.5) * s, Vector2(11, 3.2) * s), Color(0.03, 0.03, 0.06))
+			draw_rect(Rect2(Vector2(1 + f * 8.0 - 1.0, -20.0) * s, Vector2(2, 1) * s), Color(1, 1, 1, 0.7))
+		if ch.get("beer", false):
+			var hand = Vector2(1 + f * 9.0, -9.0) * s
+			draw_rect(Rect2(hand + Vector2(-1.5, -5) * s, Vector2(3, 6) * s), Color(0.95, 0.7, 0.15))
+			draw_rect(Rect2(hand + Vector2(-1.5, -6.5) * s, Vector2(3, 2) * s), Color(1, 1, 1))
+		if ch.get("smoke", false):
+			var mouth = Vector2(1 + f * 9.0, -13.0) * s
+			draw_line(mouth, mouth + Vector2(f * 4.0, -1.0) * s, Color(0.95, 0.95, 0.9), 1.2)
+			draw_circle(mouth + Vector2(f * 4.0, -1.0) * s, 0.9, Color(1.0, 0.5, 0.2))
+			for i in 3:
+				var k = fmod(h.fx_time * 0.5 + i / 3.0, 1.0)
+				draw_circle(mouth + Vector2(f * 5.0 + sin(k * 9.0 + i) * 3.0, -2.0 - k * 16.0) * s, 1.5 + k * 3.0, Color(0.75, 0.9, 0.7, 0.5 * (1.0 - k)))
+		if h.rage > 0:
+			var top = Vector2(f * -6.0, -24.0 * s - 2.0)
+			for d in [Vector2(1, 1), Vector2(1, -1)]:
+				draw_line(top - d * 2.5, top + d * 2.5, Color(1.0, 0.15, 0.1), 1.5)

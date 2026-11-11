@@ -18,8 +18,8 @@ func _ready():
 	box.add_theme_constant_override("separation", 22)
 	center.add_child(box)
 
-	_line(box, "SA77IT !  YOU WIN !" if win else "GAME OVER", 64, Color(0.3, 0.72, 1.0) if win else Color(1.0, 0.35, 0.35), true)
-	_line(box, "QUEEN SLIME AND KING PINKY ARE DEFEATED!" if win else "KING PINKY LAUGHS AT YOU...", 16, Color.WHITE)
+	_line(box, "SA77IT !  YOU WIN !" if win else "THE RUN IS OVER", 64, Color(0.3, 0.72, 1.0) if win else Color(1.0, 0.35, 0.35), true)
+	_line(box, "QUEEN SLIME, BARON BAT AND KING PINKY ARE DEFEATED!" if win else "KING PINKY LAUGHS AT YOU... BUT YOU KEEP YOUR DINARS.", 16, Color.WHITE)
 
 	var stage_center = CenterContainer.new()
 	box.add_child(stage_center)
@@ -45,11 +45,13 @@ func _ready():
 
 	var record = Game.score >= Game.best_score and Game.score > 0
 	_line(box, "SCORE  %06d%s" % [Game.score, "   NEW BEST!" if record else ""], 24, Color(1.0, 0.92, 0.4))
-	_line(box, "BEST  %06d" % Game.best_score, 16, Color.WHITE)
+	_line(box, "REACHED ACT %d  -  %d STAGES CLEARED  -  BEST %d" % [min(Game.act + 1, Game.ACTS.size()), Game.depth, Game.best_depth], 16, Color.WHITE)
+	_line(box, "+%d DINARS   (YOU HAVE %d)" % [Game.earned, Game.dinars], 24, Color(0.6, 0.95, 1.0))
+	Music.play_track("camp")
 
 	var menu = Menu.new()
 	box.add_child(menu)
-	menu.setup(["PLAY AGAIN", "TITLE SCREEN"])
+	menu.setup(["TO THE CAMP", "NEW RUN", "TITLE SCREEN"])
 	menu.chosen.connect(_on_chosen)
 	Game.sfx("power_up" if win else "explosion", 1.0 if win else 0.6)
 
@@ -62,7 +64,8 @@ func _line(box, text, font_size, color, bold = false):
 
 func _on_chosen(i):
 	if i == 0:
-		Game.pending_start_level = 0
+		Game.goto_scene(Game.CAMP_SCENE)
+	elif i == 1:
 		Game.goto_scene(Game.SELECT_SCENE)
 	else:
 		Game.goto_scene(Game.TITLE_SCENE)

@@ -15,6 +15,7 @@ var events = []     # scheduled attacks: {t, fn}
 var boss_pos = Vector2.ZERO
 var boss_hp = 100.0
 var boss_max = 100.0
+var is_boss = false   # act boss (must win) or a minigame stop on the map
 var boss_hit = 0.0
 var boss_sprite: AnimatedSprite2D
 var time = 0.0
@@ -47,7 +48,9 @@ func _ready():
 	boss_sprite.z_index = 1
 	boss_sprite.play("run")
 	add_child(boss_sprite)
-	boss_max = 150.0 + 70.0 * Game.players.size()
+	is_boss = Game.stage.get("kind", "sky") == "boss_sky"
+	Music.play_track("boss" if is_boss else "game")
+	boss_max = (150.0 + 70.0 * Game.players.size()) * (2.2 if is_boss else 1.0)
 	boss_hp = boss_max
 	boss_pos = Vector2(vs.x - 180, vs.y * 0.5)
 
@@ -110,7 +113,7 @@ func _process(delta):
 	# the baron's attacks
 	next_pattern -= delta
 	if next_pattern <= 0:
-		var angry = boss_hp < boss_max * 0.5
+		var angry = boss_hp < boss_max * (0.65 if is_boss else 0.5)
 		next_pattern = 2.3 if angry else 3.2
 		pattern = (pattern + 1) % (4 if angry else 3)
 		_attack(pattern, angry)
@@ -199,14 +202,25 @@ func _finish(won):
 	var hearts = 0
 	for s in ships:
 		hearts += max(s.hp, 0)
-	var pay = 25 + 8 * hearts if won else 5
-	Game.gold += pay
-	result = ("BARON BAT IS DOWN!\n\n+%d GOLD" if won else "SHOT DOWN...\n\n+%d GOLD FOR TRYING") % pay
+	var pay = 20 + 6 * hearts if won else 5
+	if is_boss and won:
+		pay += 40
+	result = ("BARON BAT IS DOWN!\n\n+%d GOLD AND A BOON" if won else "SHOT DOWN...\n\n+%d GOLD FOR TRYING") % pay
+	if is_boss and not won:
+		result = "SHOT DOWN...\n\n" + ("ONE LIFE LOST. AGAIN!" if Game.lives > 0 else "NO LIVES LEFT.")
 	Game.sfx("power_up" if won else "explosion", 1.0 if won else 0.6)
 	if won:
 		Game.flash(Color.WHITE, 0.6, 0.6)
 	await get_tree().create_timer(3.0).timeout
-	Game.goto_scene(Game.TAVERN_SCENE)
+	if won:
+		Game.node_done({"gold": pay, "boons": 3 + Game.meta_level("luck")}, is_boss)
+	elif not is_boss:
+		Game.node_done({"gold": pay})
+	elif Game.lives > 0:
+		Game.lives -= 1
+		Game.goto_scene(Game.SHMUP_SCENE)
+	else:
+		Game._end("gameover")
 
 
 func _draw():

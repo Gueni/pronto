@@ -43,6 +43,22 @@ var THEMES = {
 		"sky": [Color(0.07, 0.05, 0.12), Color(0.3, 0.1, 0.12)],
 		"hills": Color(0.16, 0.1, 0.17), "far": Color(0.12, 0.07, 0.14), "clouds": null,
 	},
+	"sahara": {
+		"top": Vector2i(4, 0), "fill": Vector2i(4, 1), "brick_top": Vector2i(5, 0), "brick": Vector2i(5, 1),
+		"question": Vector2i(4, 2), "tree": [Vector2i(5, 5), Vector2i(5, 4), Vector2i(5, 3)],
+		"bush": Vector2i(5, 7), "mushroom": Vector2i(7, 6), "sign": Vector2i(8, 4), "bridge": 2, "platform": 2,
+		"sky": [Color(1.0, 0.62, 0.3), Color(1.0, 0.92, 0.65)], "tint": Color(1.0, 0.9, 0.62), "sun": true,
+		"hills": Color(0.93, 0.72, 0.4), "far": Color(0.98, 0.83, 0.52), "clouds": null,
+		"plank": Color(0.85, 0.65, 0.35),
+	},
+	"medina": {
+		"top": Vector2i(7, 0), "fill": Vector2i(6, 2), "brick_top": Vector2i(8, 0), "brick": Vector2i(8, 1),
+		"question": Vector2i(7, 2), "tree": [Vector2i(0, 5), Vector2i(0, 4), Vector2i(0, 3)],
+		"bush": Vector2i(1, 5), "mushroom": Vector2i(7, 5), "sign": Vector2i(8, 3), "bridge": 1, "platform": 3,
+		"sky": [Color(0.1, 0.4, 0.9), Color(0.6, 0.85, 1.0)], "tint": Color(1.0, 1.0, 1.0), "sun": true,
+		"hills": Color(0.97, 0.97, 1.0), "far": Color(0.25, 0.55, 0.95), "clouds": Color(1, 1, 1, 0.9),
+		"plank": Color(0.2, 0.45, 0.9),
+	},
 	"night": {
 		"top": Vector2i(0, 0), "fill": Vector2i(0, 1), "brick_top": Vector2i(1, 0), "brick": Vector2i(1, 1),
 		"question": Vector2i(0, 2), "tree": [Vector2i(0, 5), Vector2i(0, 4), Vector2i(0, 3)],
@@ -95,12 +111,19 @@ var decor: TileMapLayer
 var texts = []
 var platform_count = 0
 var scenery = []
+var waves = []          # ambush stages: lists of enemy kinds
+var wave_i = 0
+var wave_wait = 2.0
+var spawn_rng = RandomNumberGenerator.new()
 
 
 func build():
 	var def = Game.level_def()
 	if not def.has("chunks"):
-		def = Game.LevelData.LEVELS[1]
+		def = Game.RunGen.make_stage(0, 0, "fight", randi(), 0)
+		Game.stage = def
+	waves = def.get("waves", [])
+	spawn_rng.seed = def.get("seed", 1) + 99
 	theme = THEMES[def.get("theme", "grass")]
 	time_limit = def.get("time", 300)
 	slip = def.get("slip", 1.0)
@@ -141,6 +164,8 @@ func build():
 			if c == "#" or c == "X":
 				backing.cells.append([Vector2i(x, y), _at(x, y - 1) != c])
 			_spawn(c, x, y)
+
+	_random_spawns(def)
 
 	# Invisible walls at both ends of the level.
 	var walls = StaticBody2D.new()
@@ -315,11 +340,88 @@ func _hazard(kind, pos):
 	add_child(h)
 
 
-func _enemy(kind, feet):
+func _enemy(kind, feet, elite = false):
 	var e = Enemy.new()
 	e.kind = kind
-	e.position = feet - Vector2(0, 16 * Enemy.SCALES.get(kind, 1.0))
+	e.elite = elite
+	if kind in ["bat", "bomber", "ghost"]:
+		feet.y -= 40.0
+	e.position = feet - Vector2(0, 16 * Enemy.SCALES.get(kind, 1.0) * (1.3 if elite else 1.0))
 	add_child(e)
+	return e
+
+
+## Ground cells an enemy can stand on: [Vector2i(x, y of the ground tile)].
+func _spots(x0, x1):
+	var out = []
+	for y in range(4, ROWS):
+		for x in range(max(x0, 1), min(x1, width - 1)):
+			if not rows[y][x] in "#X":
+				continue
+			if _at(x, y - 1) != "." or _at(x, y - 2) != "." or _at(x, y - 3) != ".":
+				continue
+			if not _at(x - 1, y) in "#X" or not _at(x + 1, y) in "#X":
+				continue
+			out.append(Vector2i(x, y))
+	return out
+
+
+## Extra enemies sprinkled over the stage: the deeper the run, the more of them.
+func _random_spawns(def):
+	var count = def.get("extra", 0)
+	var roster = def.get("roster", ["pinky"])
+	var spots = _spots(16, width - 8)
+	for i in count:
+		if spots.is_empty():
+			return
+		var k = spawn_rng.randi() % spots.size()
+		var cell = spots[k]
+		spots.remove_at(k)
+		_enemy(roster[spawn_rng.randi() % roster.size()], Vector2(cell.x * T + 8, cell.y * T), i < def.get("elites", 0))
+
+
+## Ambush: the next wave drops in when the arena is empty.
+func _waves(delta):
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not e.dead:
+			return
+	wave_wait -= delta
+	if wave_wait > 0:
+		return
+	if wave_i >= waves.size():
+		waves = []
+		Game.banner.emit("")
+		complete()
+		return
+	var spots = _spots(2, width - 2)
+	for kind in waves[wave_i]:
+		for attempt in 12:
+			var cell = spots[spawn_rng.randi() % spots.size()]
+			var feet = Vector2(cell.x * T + 8, cell.y * T)
+			var far = true
+			for p in players:
+				if not p.dead and p.global_position.distance_to(feet) < 70:
+					far = false
+			if far or attempt == 11:
+				var e = _enemy(kind, feet)
+				Game.ring(e.position, 20.0, Color(1.0, 0.5, 0.5), 0.4)
+				break
+	wave_i += 1
+	wave_wait = 1.2
+	Game.sfx("explosion", 1.3, -6.0)
+	Game.banner.emit("WAVE %d / %d" % [wave_i, waves.size()])
+	get_tree().create_timer(1.3, false).timeout.connect(func(): Game.banner.emit(""))
+A
+rep($a, <<'A', <<'B');
+func _process(delta):
+	super(delta)
+	if camera:
+A
+func _process(delta):
+	super(delta)
+	if not waves.is_empty() and not finished and not Game.busy:
+		_waves(delta)
+	if camera:
 
 
 func _platform(pos, travel):
@@ -341,6 +443,10 @@ func _background():
 	var sky = Game.sky(theme.sky[0], theme.sky[1])
 	layer.add_child(sky)
 	sky.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if theme.get("sun", false):
+		var sun = Sun.new()
+		layer.add_child(sun)
+		sun.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if theme.get("stars", false):
 		var stars = Stars.new()
 		layer.add_child(stars)
@@ -434,3 +540,14 @@ class Stars extends Control:
 			var p = Vector2(rng.randf() * size.x, rng.randf() * size.y * 0.8)
 			var a = 0.45 + 0.4 * sin(t * (0.8 + rng.randf() * 2.0) + i)
 			draw_rect(Rect2(p, Vector2(2, 2) if i % 7 == 0 else Vector2(1.5, 1.5)), Color(1, 1, 0.9, a))
+
+
+## A big low sun for the Tunisian themes.
+class Sun extends Control:
+	func _ready():
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw():
+		var c = Vector2(size.x * 0.78, size.y * 0.3)
+		draw_circle(c, 78, Color(1.0, 1.0, 0.8, 0.18))
+		draw_circle(c, 56, Color(1.0, 0.97, 0.75, 0.9))
