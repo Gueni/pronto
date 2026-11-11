@@ -378,7 +378,7 @@ func hurt(from_x = null):
 		rage = 6.0
 	var p = Game.players[slot]
 	p.hearts -= 1
-	p.rocks = ch.get("always_rocks", false)
+	p.rocks = false
 	Game.stats_changed.emit()
 	if p.hearts <= 0:
 		die()
@@ -407,7 +407,7 @@ func die():
 	queue_redraw()
 	animated_sprite.visible = true
 	Game.players[slot].hearts = 0
-	Game.players[slot].rocks = ch.get("always_rocks", false)
+	Game.players[slot].rocks = false
 	Game.stats_changed.emit()
 	Game.sfx("hurt", 0.7)
 	velocity = Vector2.ZERO
