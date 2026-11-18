@@ -6,8 +6,9 @@ const INFO = {
 	"fight": ["FIGHT", "!", Color(0.95, 0.45, 0.35), "A ROAD FULL OF ENEMIES. REACH THE FLAG."],
 	"arena": ["AMBUSH", "X", Color(0.8, 0.25, 0.3), "A CLOSED ARENA. SURVIVE THREE WAVES."],
 	"elite": ["ELITE", "E", Color(1.0, 0.8, 0.25), "TOUGHER ENEMIES, ONE MORE BOON TO CHOOSE FROM."],
-	"gallery": ["GALLERY", "+", Color(0.4, 0.7, 1.0), "MINIGAME: FIRST-PERSON SHOOTING RANGE. SCORE = GOLD, A GOOD SCORE = A BOON."],
-	"sky": ["SKY DUEL", "~", Color(0.45, 0.9, 0.95), "MINIGAME: FLY AND SHOOT DOWN BARON BAT FOR GOLD AND A BOON."],
+	"gallery": ["GALLERY", "+", Color(0.4, 0.7, 1.0), "MINIGAME: FIRST-PERSON SHOOTING RANGE. SCORE = DAN, A GOOD SCORE = A BOON."],
+	"sky": ["SKY DUEL", "~", Color(0.45, 0.9, 0.95), "MINIGAME: FLY AND SHOOT DOWN BARON BAT FOR DAN AND A BOON."],
+	"event": ["? ? ?", "?", Color(0.95, 0.6, 0.95), "A SURPRISE. PROBABLY A GAME. PROBABLY."],
 	"tavern": ["TAVERN", "T", Color(0.5, 0.9, 0.5), "HEAL, BUY BOONS, PLACE A BET."],
 	"boss": ["BOSS", "B", Color(0.85, 0.45, 1.0), "THE BOSS OF THIS ACT."],
 	"boss_sky": ["BOSS", "B", Color(0.85, 0.45, 1.0), "BARON BAT RULES THE SKY OF THE SOUTH. A DUEL IN THE AIR."],
@@ -19,6 +20,9 @@ var boons = []         # boons offered as a reward (empty = no reward)
 var boon_index = 0
 var t = 0.0
 var grace = 0.4
+var pause_box = null   # the pause menu, while it is open
+var pause_menu = null
+var next_row = 0     # the row the team is choosing from (fixed while the screen fades out)
 
 
 func _ready():
@@ -35,6 +39,8 @@ func _ready():
 		boons = Game.roll_boons(Game.pending.boons)
 		if boons.is_empty():
 			Game.pending = null
+	next_row = Game.map_row + 1
+	Game.save_run()   # every stop on the map is a save point
 	if Game.map_row < 0:
 		for node in Game.map[0]:
 			if node != null:
@@ -51,6 +57,17 @@ func _process(delta):
 		return
 	if grace > 0:
 		grace -= delta
+		return
+	if pause_box != null:
+		if pause_menu.visible and (Input.is_action_just_pressed("m_back") or Input.is_action_just_pressed("pause")):
+			_close_pause()
+		return
+	if Input.is_action_just_pressed("m_back") or Input.is_action_just_pressed("pause"):
+		if not boons.is_empty():
+			boon_index = boons.size()   # down to SKIP
+			Game.sfx("tap", 0.7)
+		else:
+			_open_pause()
 		return
 	var move = 0
 	if Input.is_action_just_pressed("m_down"):
@@ -84,6 +101,47 @@ func _process(delta):
 		Game.enter_node(choices[index])
 
 
+## Circle / ESC on the map: resume, settings, or give the run up.
+func _open_pause():
+	Game.sfx("tap")
+	pause_box = ColorRect.new()
+	pause_box.color = Color(0, 0, 0.05, 0.82)
+	add_child(pause_box)
+	pause_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var center = CenterContainer.new()
+	pause_box.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_menu = preload("res://scripts/menu.gd").new()
+	center.add_child(pause_menu)
+	pause_menu.setup(["BACK TO THE MAP", "SETTINGS", "SAVE AND QUIT", "ABANDON RUN"])
+	pause_menu.chosen.connect(_on_pause)
+
+
+func _close_pause():
+	Game.sfx("tap", 0.7)
+	pause_box.queue_free()
+	pause_box = null
+	grace = 0.25
+
+
+func _on_pause(i):
+	if pause_box == null:
+		return
+	if i == 0:
+		_close_pause()
+	elif i == 1:
+		pause_menu.visible = false
+		var s = Game.open_settings(self)
+		s.closed.connect(func(): pause_menu.visible = true)
+	elif i == 2:
+		_close_pause()
+		Game.save_run()
+		Game.quit_to_title()
+	else:
+		_close_pause()
+		Game._end("gameover")
+
+
 func _node_pos(row, lane):
 	var w = size.x
 	var h = size.y
@@ -106,7 +164,7 @@ func _draw():
 	var hearts = []
 	for i in Game.players.size():
 		hearts.append("%s %d/%d" % [Game.char_of(i).name, Game.players[i].hearts, Game.max_hearts(i)])
-	_text(Vector2(0, 92), "GOLD %d     LIVES x%d     %s" % [Game.gold, Game.lives, "   ".join(hearts)], 16, Color.WHITE, w)
+	_text(Vector2(0, 92), "DAN %d     LIVES x%d     %s" % [Game.gold, Game.lives, "   ".join(hearts)], 16, Color.WHITE, w)
 
 	# paths
 	for r in Game.map.size() - 1:
@@ -126,7 +184,7 @@ func _draw():
 			var info = INFO[node.type]
 			var p = _node_pos(r, node.lane)
 			var here = r == Game.map_row and node.lane == Game.map_lane
-			var option = r == Game.map_row + 1 and node.lane in choices
+			var option = r == next_row and node.lane in choices
 			var selected = picking and option and choices[index] == node.lane
 			var radius = 30.0 if node.type.begins_with("boss") else 22.0
 			var col = info[2]
@@ -147,7 +205,7 @@ func _draw():
 
 	# what the highlighted node is
 	if picking and not choices.is_empty():
-		var node = Game.map[Game.map_row + 1][choices[index]]
+		var node = Game.map[next_row][choices[index]]
 		_text(Vector2(0, h * 0.82), INFO[node.type][3], 16, Color(1.0, 0.95, 0.7), w)
 		_text(Vector2(0, h * 0.87), "UP / DOWN: CHOOSE YOUR PATH        ENTER / (A): GO", 8, Color(0.75, 0.8, 0.9), w)
 	var owned = []
@@ -173,5 +231,5 @@ func _draw():
 				_text(Vector2(w * 0.2, y + 26), b.name + ("   (HAVE %d)" % have if have > 0 else ""), 16, Color(1.0, 0.9, 0.4) if sel else Color.WHITE, w * 0.6, true)
 				_text(Vector2(w * 0.2, y + 48), b.desc, 8, Color(0.85, 0.9, 1.0), w * 0.6)
 			else:
-				_text(Vector2(w * 0.2, y + 36), "SKIP  (+15 GOLD)", 16, Color(1.0, 0.9, 0.4) if sel else Color(0.7, 0.7, 0.75), w * 0.6)
+				_text(Vector2(w * 0.2, y + 36), "SKIP  (+15 DAN)", 16, Color(1.0, 0.9, 0.4) if sel else Color(0.7, 0.7, 0.75), w * 0.6)
 			y += 74

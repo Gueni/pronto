@@ -38,6 +38,11 @@ var facing = 1
 var idle_time = 0.0
 var bubble_time = 0.0
 var ch
+var jet = 0.0        # seconds of jetpack fuel
+var jetting = false
+var buddy = 0.0      # seconds the falcon stays
+var buddy_cd = 0.0
+var star = 0.0       # seconds of star power left
 var inp = "solo"
 var bubble: Label
 var size = 1.0
@@ -62,7 +67,7 @@ var rage = 0.0         # Elli: seconds of fury left
 var guard_used = false # Carthage shield: one free hit per stage
 var props: Node2D
 
-@onready var animated_sprite = $AnimatedSprite2D
+var animated_sprite   # a hand-drawn Puppet (see puppet.gd)
 @onready var shape = $CollisionShape2D
 
 
@@ -72,8 +77,10 @@ func _ready():
 	slot = min(slot, Game.players.size() - 1)
 	ch = Game.char_of(slot)
 	inp = Game.players[slot].input
-	animated_sprite.sprite_frames = Game.frames_for(ch.sheet)
-	Game.apply_look(animated_sprite, ch)
+	$AnimatedSprite2D.queue_free()
+	animated_sprite = Game.Puppet.new()
+	animated_sprite.look = ch.look
+	add_child(animated_sprite)
 	animated_sprite.play("idle")
 
 	# Every hero has their own size. The body stays under one tile so nobody gets stuck.
@@ -85,10 +92,6 @@ func _ready():
 	shape.shape = circle
 	shape.position = Vector2(0, -circle.radius - 0.9)
 	var head = -24.0 * size
-	props = Props.new()
-	props.hero = self
-	props.z_index = 1
-	add_child(props)
 
 	bubble = Game.label("", 8, ch.color)
 	bubble.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -120,12 +123,14 @@ func _physics_process(delta):
 		return
 
 	fx_time += delta
-	props.queue_redraw()
 	if rage > 0:
 		rage -= delta
 		animated_sprite.modulate = Color(1.0, 0.5, 0.45) if rage > 0 else ch.tint
 	if shield > 0:
 		shield -= delta
+	if star > 0:
+		star -= delta
+		animated_sprite.modulate = Color.from_hsv(fmod(fx_time * 2.0, 1.0), 0.45, 1.0) if star > 0 else ch.tint
 	if ult != "":
 		_ult_process(delta)
 	elif not locked:
@@ -142,6 +147,7 @@ func _physics_process(delta):
 	wall_lock -= delta
 
 	var on_floor = is_on_floor()
+	var water = level != null and level.water
 	if on_floor:
 		coyote = COYOTE_TIME
 		air_jumps = 1 + Game.up("shoes")
@@ -156,7 +162,11 @@ func _physics_process(delta):
 			g *= ch.get("fall", 1.0)
 		if ult == "wings":
 			g *= 0.4
+		if water:
+			g *= 0.3
 		velocity.y += g * delta
+		if water:
+			velocity.y = min(velocity.y, 70.0)   # you sink slowly
 		if ult == "wings":
 			velocity.y = min(velocity.y, 70.0)
 	if ult == "slam":
@@ -202,6 +212,14 @@ func _physics_process(delta):
 	if pounding:
 		velocity.y = 540.0
 
+	# Under water every press of jump is a swimming stroke, as many as you like.
+	if water and buffer > 0 and ult != "slam" and not pounding:
+		velocity.y = -165.0 * ch.get("jump", 1.0)
+		buffer = 0
+		coyote = 0
+		Game.sfx("jump", 0.7, -6.0)
+		Game.ring(global_position + Vector2(-facing * 6.0, -18.0 * size), 5.0, Color(0.85, 0.95, 1.0, 0.7), 0.35)
+
 	# Handle jump (with coyote time, jump buffering and one air jump).
 	if buffer > 0 and ult != "slam":
 		if wall_time > 0 and coyote <= 0:
@@ -226,9 +244,38 @@ func _physics_process(delta):
 			Game.sfx("jump", 1.35)
 			_dust()
 
+	# Jetpack: hold jump in the air to fly while there is fuel.
+	jetting = jet > 0 and not locked and not on_floor and not pounding and ult != "slam" and Input.is_action_pressed(inp + "_jump")
+	if jetting:
+		jet -= delta
+		if velocity.y > -150.0:
+			velocity.y = move_toward(velocity.y, -150.0, 1500.0 * delta)
+		if int(jet * 8.0) != int((jet + delta) * 8.0):
+			Game.sfx("tap", 0.5, -10.0)
+	# The falcon dives at whatever comes close.
+	if buddy > 0:
+		buddy -= delta
+		buddy_cd -= delta
+		if buddy_cd <= 0:
+			var prey = _nearest_enemy(170.0)
+			if prey:
+				buddy_cd = 1.0
+				var feather = Rock.new()
+				feather.from_player = true
+				feather.look = "feather"
+				feather.grav = 0.0
+				feather.life = 0.7
+				var from = global_position + Vector2(-facing * 10.0, -30.0 * size)
+				feather.velocity = (prey.global_position - from).normalized() * 340.0
+				get_parent().add_child(feather)
+				feather.global_position = from
+				Game.sfx("tap", 1.6, -8.0)
+
 	# Apply movement
-	var target = direction * (RUN_SPEED if running else WALK_SPEED) * ch.get("speed", 1.0)
+	var target = direction * (RUN_SPEED if running else WALK_SPEED) * ch.get("speed", 1.0) * (1.2 if star > 0 else 1.0)
 	target *= (1.0 + 0.06 * Game.up("dash")) * (0.93 if Game.up("couscous") > 0 else 1.0) * (1.25 if rage > 0 else 1.0)
+	if water:
+		target *= 0.85
 	var accel = 650.0
 	if on_floor:
 		accel = (1000.0 if direction != 0 else 1300.0) * (level.slip if level else 1.0)
@@ -301,6 +348,8 @@ func _physics_process(delta):
 			animated_sprite.play("idle")
 		else:
 			animated_sprite.play("run")
+	elif water:
+		animated_sprite.play("run")   # kicking legs: see the lean below
 	else:
 		var f = 5
 		if velocity.y < -150:
@@ -309,6 +358,12 @@ func _physics_process(delta):
 			f = 4
 		animated_sprite.play("jump")
 		animated_sprite.set_frame_and_progress(f, 0.0)
+
+	# Swimming: the body leans forward into the stroke and rocks a little.
+	var lean = 0.0
+	if water and not on_floor:
+		lean = facing * (1.05 + clamp(velocity.y / 300.0, -0.4, 0.3)) + sin(fx_time * 7.0) * 0.07
+	animated_sprite.rotation = lerp_angle(animated_sprite.rotation, lean, min(1.0, delta * 9.0))
 
 	# Idle chatter
 	if on_floor and direction == 0 and not locked:
@@ -330,6 +385,9 @@ func _throw():
 		throw_cd *= 0.5
 	if Game.players[slot].rocks:   # rock block: fast hands until you get hurt
 		throw_cd *= 0.6
+	var pw = Game.players[slot].get("power", "")
+	if pw == "fire":
+		throw_cd = min(throw_cd, 0.32)
 	anim_lock = 0.25
 	animated_sprite.play("throw")
 	var r = Rock.new()
@@ -343,6 +401,17 @@ func _throw():
 		r.grav = 70.0
 		r.life = 0.6
 		r.velocity = Vector2(facing * 270.0 + velocity.x * 0.3, -25.0)
+	if pw == "fire":
+		r.look = "fire"
+		r.power += 1
+		r.grav = 520.0
+		r.life = 2.4
+		r.velocity = Vector2(facing * 245.0 + velocity.x * 0.3, 30.0)
+	elif pw == "ice":
+		r.look = "ice"
+		r.grav = 30.0
+		r.life = 0.9
+		r.velocity = Vector2(facing * 300.0 + velocity.x * 0.3, -10.0)
 	get_parent().add_child(r)
 	r.global_position = global_position + Vector2(facing * 8, -12 * size)
 	Game.sfx("tap", 0.8)
@@ -379,6 +448,7 @@ func hurt(from_x = null):
 	var p = Game.players[slot]
 	p.hearts -= 1
 	p.rocks = false
+	p.power = ""
 	Game.stats_changed.emit()
 	if p.hearts <= 0:
 		die()
@@ -408,6 +478,9 @@ func die():
 	animated_sprite.visible = true
 	Game.players[slot].hearts = 0
 	Game.players[slot].rocks = false
+	Game.players[slot].power = ""
+	jet = 0.0
+	buddy = 0.0
 	Game.stats_changed.emit()
 	Game.sfx("hurt", 0.7)
 	velocity = Vector2.ZERO
@@ -469,6 +542,12 @@ func heal():
 	return false
 
 
+## FIRE or ICE sandals, kept from stage to stage until you get hurt.
+func give_power(k):
+	Game.players[slot].power = k
+	Game.stats_changed.emit()
+
+
 func give_rocks():
 	Game.players[slot].rocks = true
 	Game.stats_changed.emit()
@@ -493,7 +572,7 @@ func say(event, chance = -1.0):
 # ---------------------------------------------------------------- mana + ultimates
 
 func protected():
-	return shield > 0 or ult == "rush" or ult == "slam" or dash_time > 0
+	return star > 0 or shield > 0 or ult == "rush" or ult == "slam" or dash_time > 0
 
 
 ## Damage dealt by landing on an enemy's head.
@@ -722,11 +801,14 @@ func _bolt(e):
 
 
 func _afterimage():
-	var s = Sprite2D.new()
-	s.texture = animated_sprite.sprite_frames.get_frame_texture(animated_sprite.animation, animated_sprite.frame)
+	var s = Game.Puppet.new()
+	s.look = animated_sprite.look
 	s.flip_h = animated_sprite.flip_h
+	s.animation = animated_sprite.animation
+	s.frame = animated_sprite.frame
+	s.t = animated_sprite.t
+	s.frozen = true
 	s.scale = animated_sprite.scale
-	s.material = animated_sprite.material
 	s.modulate = Color(0.5, 0.85, 1.0, 0.55)
 	s.z_index = 4
 	get_parent().add_child(s)
@@ -755,15 +837,33 @@ func _draw():
 		draw_circle(mid, r, Color(0.4, 1.0, 0.6, 0.16))
 		draw_arc(mid, r, 0, TAU, 28, Color(0.6, 1.0, 0.7, 0.9), 1.0)
 	var p = Game.players[slot]
-	var cost = Game.ult_cost(slot)
-	var y = -24.0 * size - 5.0
-	draw_rect(Rect2(-9, y - 1, 18, 4), Color(0.04, 0.04, 0.1))
-	var full = p.mana >= cost
-	var col = Color(1.0, 0.85, 0.25) if full and int(fx_time * 6) % 2 == 0 else Color(0.3, 0.6, 1.0)
-	draw_rect(Rect2(-8, y, 16.0 * clamp(p.mana / cost, 0.0, 1.0), 2), col)
-	# Thin green line: the special move is ready when it is full.
-	var cd = max(ch.move.cd, 0.01)
-	draw_rect(Rect2(-8, y + 4, 16.0 * clamp(1.0 - dash_cd / cd, 0.0, 1.0), 1), Color(0.5, 1.0, 0.6))
+	if jet > 0:
+		# the pack on the back, its flame, and a fuel gauge
+		var back = mid + Vector2(-facing * 7.0 * size, 0)
+		draw_rect(Rect2(back.x - 2.5, back.y - 6, 5, 11), Color(0.75, 0.78, 0.86))
+		draw_rect(Rect2(back.x - 2.5, back.y - 6, 5, 3), Color(0.9, 0.25, 0.25))
+		if jetting:
+			var f = 7.0 + sin(fx_time * 40.0) * 3.0
+			draw_colored_polygon(PackedVector2Array([back + Vector2(-2.5, 5), back + Vector2(2.5, 5), back + Vector2(0, 5 + f)]), Color(1.0, 0.6, 0.15))
+			draw_colored_polygon(PackedVector2Array([back + Vector2(-1.2, 5), back + Vector2(1.2, 5), back + Vector2(0, 5 + f * 0.55)]), Color(1, 1, 0.8))
+		draw_rect(Rect2(-9, -24.0 * size - 9.0, 18, 2), Color(0.04, 0.04, 0.1))
+		draw_rect(Rect2(-9, -24.0 * size - 9.0, 18.0 * jet / 7.0, 2), Color(1.0, 0.6, 0.15))
+	if buddy > 0 and (buddy > 3.0 or int(buddy * 8.0) % 2 == 0):
+		var at = mid + Vector2(-facing * 10.0, -19.0 * size + sin(fx_time * 3.0) * 3.0)
+		var flap = sin(fx_time * 14.0) * 4.0
+		draw_colored_polygon(PackedVector2Array([at + Vector2(-1, -1), at + Vector2(-8, -4 + flap), at + Vector2(-3, 2)]), Color(0.45, 0.3, 0.18))
+		draw_colored_polygon(PackedVector2Array([at + Vector2(1, -1), at + Vector2(8, -4 + flap), at + Vector2(3, 2)]), Color(0.45, 0.3, 0.18))
+		draw_circle(at, 3.0, Color(0.62, 0.44, 0.26))
+		draw_circle(at + Vector2(facing * 2.5, -1.5), 2.0, Color(0.95, 0.9, 0.8))
+		draw_colored_polygon(PackedVector2Array([at + Vector2(facing * 4.0, -2), at + Vector2(facing * 6.5, -1), at + Vector2(facing * 4.0, 0)]), Color(1.0, 0.75, 0.2))
+	var pw = p.get("power", "")
+	if pw != "":
+		# a little flame or snowflake circling the hero
+		var a = fx_time * 5.0
+		var at = mid + Vector2(cos(a) * 13.0, sin(a) * 5.0) * size
+		draw_circle(at, 2.4, Color(1.0, 0.5, 0.1) if pw == "fire" else Color(0.55, 0.9, 1.0))
+		draw_circle(at, 1.1, Color(1, 1, 0.85))
+	# (mana lives in the HUD only: nothing is drawn over the heroes' heads)
 
 
 ## What makes each hero who they are, drawn in front of the sprite:

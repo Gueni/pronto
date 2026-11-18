@@ -19,7 +19,7 @@ func _ready():
 	center.add_child(box)
 
 	_line(box, "SA77IT !  YOU WIN !" if win else "THE RUN IS OVER", 64, Color(0.3, 0.72, 1.0) if win else Color(1.0, 0.35, 0.35), true)
-	_line(box, "QUEEN SLIME, BARON BAT AND KING PINKY ARE DEFEATED!" if win else "KING PINKY LAUGHS AT YOU... BUT YOU KEEP YOUR DINARS.", 16, Color.WHITE)
+	_line(box, "MAMA REX, SIDI PUFFER, BARON BAT, KING PINKY AND THE GHOULA ARE DEFEATED!" if win else "THE SHADOW IS STILL OUT THERE... BUT YOU KEEP YOUR BARAKA.", 16, Color.WHITE)
 
 	var stage_center = CenterContainer.new()
 	box.add_child(stage_center)
@@ -31,12 +31,7 @@ func _ready():
 	for i in Game.players.size():
 		var ch = Game.char_of(i)
 		pronto_here = pronto_here or ch.get("laugh", false)
-		var s = Game.char_sprite(ch, "run" if win else "hurt", 3.4)
-		if not win:
-			s.sprite_frames = s.sprite_frames.duplicate()
-			s.sprite_frames.set_animation_loop("hurt", true)
-			s.sprite_frames.set_animation_speed("hurt", 5)
-			s.play("hurt")
+		var s = Game.char_sprite(ch, "run" if win else "death", 3.4)
 		Game.stand(s, Vector2(75 + i * 150, 134))
 		stage.add_child(s)
 	if pronto_here:
@@ -46,7 +41,7 @@ func _ready():
 	var record = Game.score >= Game.best_score and Game.score > 0
 	_line(box, "SCORE  %06d%s" % [Game.score, "   NEW BEST!" if record else ""], 24, Color(1.0, 0.92, 0.4))
 	_line(box, "REACHED ACT %d  -  %d STAGES CLEARED  -  BEST %d" % [min(Game.act + 1, Game.ACTS.size()), Game.depth, Game.best_depth], 16, Color.WHITE)
-	_line(box, "+%d DINARS   (YOU HAVE %d)" % [Game.earned, Game.dinars], 24, Color(0.6, 0.95, 1.0))
+	_line(box, "+%d BARAKA   (YOU HAVE %d)" % [Game.earned, Game.dinars], 24, Color(0.6, 0.95, 1.0))
 	Music.play_track("camp")
 
 	var menu = Menu.new()

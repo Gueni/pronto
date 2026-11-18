@@ -59,7 +59,7 @@ func _build(keep):
 		if level >= it.max:
 			texts.append("%s   %d/%d   MAXED" % [it.name, level, it.max])
 		else:
-			texts.append("%s   %d/%d   %d D" % [it.name, level, it.max, it.cost * (level + 1)])
+			texts.append("%s   %d/%d   %d BARAKA" % [it.name, level, it.max, it.cost * (level + 1)])
 	texts.append("START A RUN")
 	texts.append("BACK TO TITLE")
 	menu.setup(texts, 16)
@@ -82,7 +82,7 @@ func _on_chosen(i):
 		_build(i)
 	else:
 		Game.sfx("tap", 0.5)
-		_say("NOT ENOUGH DINARS. GO DIE A LITTLE FURTHER.")
+		_say("NOT ENOUGH BARAKA. GO DIE A LITTLE FURTHER.")
 
 
 func _say(text):
@@ -91,14 +91,14 @@ func _say(text):
 
 
 func _process(delta):
-	dinars_l.text = "DINARS  %d        BEST DEPTH  %d        WINS  %d" % [Game.dinars, Game.best_depth, Game.wins]
+	dinars_l.text = "BARAKA  %d        BEST DEPTH  %d        WINS  %d" % [Game.dinars, Game.best_depth, Game.wins]
 	message_time -= delta
 	if message_time > 0:
 		desc_l.text = message
 	elif menu.index < items.size():
 		desc_l.text = items[menu.index].desc
 	else:
-		desc_l.text = "DINARS ARE PAID AT THE END OF EVERY RUN: THE DEEPER YOU GET, THE MORE YOU EARN."
+		desc_l.text = "BARAKA IS PAID AT THE END OF EVERY RUN: THE DEEPER YOU GET, THE MORE YOU EARN."
 	if not Game.busy and Input.is_action_just_pressed("m_back"):
 		Game.goto_scene(Game.TITLE_SCENE)
 

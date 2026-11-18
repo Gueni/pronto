@@ -137,10 +137,7 @@ func _spawn(progress):
 		kind = "friend"
 	elif roll < 0.14 + 0.12 + 0.14 * progress:
 		kind = "grump"
-	var s = AnimatedSprite2D.new()
-	s.sprite_frames = Game.frames_for(Game.DUDE if kind == "friend" else Game.PINK)
-	if kind == "grump":
-		s.material = Game.hue_material(0.14)
+	var s = Game.puppet("pronto" if kind == "friend" else kind)
 	var k = ROWS[row].scale
 	s.scale = Vector2(k, k)
 	s.flip_h = lane > 0
@@ -193,7 +190,7 @@ func _finish():
 	over = true
 	rocks.clear()
 	var good = score >= 22
-	result = "TIME!\n\n%d GOLD WON" % score + ("\n\nSHARP SHOOTING: CHOOSE A BOON!" if good else "\n\n(22 OR MORE WINS A BOON)")
+	result = "TIME!\n\n%d DAN WON" % score + ("\n\nSHARP SHOOTING: CHOOSE A BOON!" if good else "\n\n(22 OR MORE WINS A BOON)")
 	Game.sfx("power_up")
 	await get_tree().create_timer(3.2).timeout
 	Game.node_done({"gold": score, "boons": 3 + Game.meta_level("luck") if good else 0})
@@ -280,9 +277,9 @@ class Overlay extends Node2D:
 			draw_string(Game.FONT_BOLD, n.pos + Vector2(-100, -30 - n.t * 40), n.text, HORIZONTAL_ALIGNMENT_CENTER, 200, 16,
 					Color(n.col.r, n.col.g, n.col.b, 1.0 - n.t / 0.8))
 		draw_rect(Rect2(0, 0, vs.x, 50), Color(0, 0, 0.05, 0.55))
-		draw_string(Game.FONT_BOLD, Vector2(24, 34), "GOLD  %d" % game.score, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(1.0, 0.85, 0.3))
+		draw_string(Game.FONT_BOLD, Vector2(24, 34), "DAN  %d" % game.score, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(1.0, 0.85, 0.3))
 		draw_string(Game.FONT_BOLD, Vector2(0, 34), "TIME  %02d" % int(ceil(max(game.time_left, 0.0))), HORIZONTAL_ALIGNMENT_CENTER, vs.x, 24, Color.WHITE)
-		draw_string(Game.FONT, Vector2(0, 30), "FAR = MORE GOLD    SHOOT ROCKS    BLUE = FRIEND   ", HORIZONTAL_ALIGNMENT_RIGHT, vs.x, 8, Color(0.8, 0.85, 1.0))
+		draw_string(Game.FONT, Vector2(0, 30), "FAR = MORE DAN    SHOOT ROCKS    BLUE = FRIEND   ", HORIZONTAL_ALIGNMENT_RIGHT, vs.x, 8, Color(0.8, 0.85, 1.0))
 		if game.over:
 			draw_rect(Rect2(0, vs.y * 0.3, vs.x, vs.y * 0.4), Color(0, 0, 0.05, 0.65))
 			var lines = game.result.split("\n")

@@ -19,12 +19,20 @@ const MAJOR = [0, 2, 4, 5, 7, 9, 11]
 const SONGS = {
 	"title": {"bpm": 104, "root": 50, "scale": HIJAZ, "prog": [0, 0, 3, 4], "drums": "maqsum", "seed": 11, "density": 0.6},
 	"map": {"bpm": 96, "root": 48, "scale": DORIAN, "prog": [0, 3, 0, 4], "drums": "soft", "seed": 5, "density": 0.5},
+	# one theme per hero: Pronto, Elli, Shee, Gueni, Iheb (the order of Game.CHARACTERS)
+	"hero0": {"bpm": 168, "root": 57, "scale": MAJOR, "prog": [0, 4, 5, 3], "drums": "rock", "seed": 101, "density": 0.95},
+	"hero1": {"bpm": 178, "root": 47, "scale": PHRYGIAN, "prog": [0, 1, 0, 6], "drums": "drive", "seed": 102, "density": 0.9},
+	"hero2": {"bpm": 112, "root": 43, "scale": HIJAZ, "prog": [0, 0, 1, 0], "drums": "maqsum", "seed": 103, "density": 0.55},
+	"hero3": {"bpm": 92, "root": 45, "scale": DORIAN, "prog": [0, 3, 0, 3], "drums": "skank", "seed": 104, "density": 0.5},
+	"hero4": {"bpm": 152, "root": 52, "scale": MINOR, "prog": [0, 0, 4, 0], "drums": "tarantella", "seed": 105, "density": 0.9},
 	"fight0": {"bpm": 140, "root": 48, "scale": MAJOR, "prog": [0, 5, 3, 4], "drums": "rock", "seed": 3, "density": 0.75},
 	"tavern": {"bpm": 126, "root": 52, "scale": HIJAZ, "prog": [0, 1, 0, 6], "drums": "maqsum", "seed": 21, "density": 0.8},
 	"camp": {"bpm": 84, "root": 45, "scale": MINOR, "prog": [0, 5, 3, 4], "drums": "soft", "seed": 9, "density": 0.45},
 	"game": {"bpm": 158, "root": 55, "scale": MAJOR, "prog": [0, 3, 4, 0], "drums": "rock", "seed": 23, "density": 0.85},
 	"fight1": {"bpm": 132, "root": 50, "scale": HIJAZ, "prog": [0, 3, 1, 0], "drums": "maqsum", "seed": 7, "density": 0.8},
 	"boss": {"bpm": 166, "root": 43, "scale": HIJAZ, "prog": [0, 1, 0, 4], "drums": "drive", "seed": 17, "density": 0.9},
+	"ocean": {"bpm": 108, "root": 50, "scale": DORIAN, "prog": [0, 4, 3, 4], "drums": "soft", "seed": 41, "density": 0.6},
+	"fight3": {"bpm": 158, "root": 41, "scale": HIJAZ, "prog": [0, 1, 3, 1], "drums": "drive", "seed": 31, "density": 0.85},
 	"fight2": {"bpm": 150, "root": 45, "scale": PHRYGIAN, "prog": [0, 5, 6, 4], "drums": "drive", "seed": 13, "density": 0.8},
 }
 
@@ -154,6 +162,20 @@ func _render(song):
 						_drum(buf, p, 1, 0.3, rng)
 					elif s % 2 == 0:
 						_drum(buf, p, 2, 0.1, rng)
+				"skank":   # lazy off-beat, Gueni style
+					if s == 0 or s == 10:
+						_drum(buf, p, 0, 0.45, rng)
+					elif s % 8 == 4:
+						_drum(buf, p, 3, 0.3, rng)
+					elif s % 4 == 2:
+						_drum(buf, p, 2, 0.12, rng)
+				"tarantella":   # a galloping 3+3+2 for Iheb
+					if s == 0 or s == 6 or s == 12:
+						_drum(buf, p, 0, 0.45, rng)
+					elif s == 3 or s == 9 or s == 14:
+						_drum(buf, p, 3, 0.3, rng)
+					else:
+						_drum(buf, p, 2, 0.07, rng)
 				"drive":
 					if s % 4 == 0:
 						_drum(buf, p, 0, 0.5, rng)

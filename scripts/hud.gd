@@ -5,6 +5,8 @@ const Menu = preload("res://scripts/menu.gd")
 
 var score_l: Label
 var coin_l: Label
+var dan_icon
+var pause_menu
 var world_l: Label
 var time_l: Label
 var lives_l: Label
@@ -81,6 +83,11 @@ func _ready():
 	pause_panel = ColorRect.new()
 	pause_panel.color = Color(0, 0, 0.05, 0.7)
 	pause_panel.visible = false
+	var map = Minimap.new()
+	root.add_child(map)
+	dan_icon = Game.DanIcon.new()
+	dan_icon.height = 18.0
+	root.add_child(dan_icon)
 	root.add_child(pause_panel)
 	pause_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var center = CenterContainer.new()
@@ -93,8 +100,9 @@ func _ready():
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 	var menu = Menu.new()
+	pause_menu = menu
 	box.add_child(menu)
-	menu.setup(["RESUME", "ABANDON RUN"])
+	menu.setup(["RESUME", "SETTINGS", "QUIT TO TITLE", "ABANDON RUN"])
 	menu.chosen.connect(_on_pause_choice)
 	var hint = Game.label("SANDAL: F / ENTER / (X)     MOVE: SHIFT / (B)     ULTIMATE: E / RIGHT CTRL / (Y)\nM: MUTE     F11: FULLSCREEN", 16, Color(0.7, 0.75, 0.85))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -126,7 +134,7 @@ func _icon(tex, color = Color.WHITE):
 
 func refresh():
 	score_l.text = "SCORE\n%06d" % Game.score
-	coin_l.text = "GOLD\n%d" % Game.gold
+	coin_l.text = "DAN\n%d" % Game.gold
 	world_l.text = "STAGE\n%s" % Game.level_def().name
 	lives_l.text = "LIVES\nx%d" % Game.lives
 	for c in players_box.get_children():
@@ -149,6 +157,9 @@ func refresh():
 				row.add_child(_icon(heart_tex, Color.WHITE if h < p.hearts else Color(0.1, 0.1, 0.15, 0.7)))
 			if p.rocks:
 				row.add_child(_icon(rock_tex))
+			var pw = p.get("power", "")
+			if pw != "":
+				row.add_child(Game.label(" " + pw.to_upper(), 16, Color(1.0, 0.6, 0.2) if pw == "fire" else Color(0.55, 0.9, 1.0)))
 		if not p.out:
 			var bar = ManaBar.new()
 			bar.slot = i
@@ -165,6 +176,7 @@ func _on_boss(hp, max_hp):
 
 
 func _process(_delta):
+	dan_icon.position = coin_l.global_position + Vector2(coin_l.size.x * 0.5 - 62, 16)
 	if not visible:
 		pause_panel.visible = false
 		return
@@ -173,6 +185,8 @@ func _process(_delta):
 	time_l.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35) if t <= 30 else Color.WHITE)
 	if not Game.busy and Input.is_action_just_pressed("pause"):
 		_set_paused(not get_tree().paused)
+	elif pause_panel.visible and pause_menu.visible and Input.is_action_just_pressed("m_back"):
+		_set_paused(false)   # circle / backspace: back to the game
 
 
 func _set_paused(value):
@@ -186,6 +200,15 @@ func _on_pause_choice(i):
 		return
 	_set_paused(false)
 	if i == 1:
+		# keep the game paused behind the settings, come back to the pause menu after
+		_set_paused(true)
+		pause_menu.visible = false
+		var s = Game.open_settings(self)
+		s.closed.connect(func(): pause_menu.visible = true)
+	elif i == 2:
+		# the run was saved at the last stop on the map: this stage starts over next time
+		Game.quit_to_title()
+	elif i == 3:
 		Game._end("gameover")
 
 
@@ -220,3 +243,53 @@ class ManaBar extends Control:
 		draw_rect(Rect2(x - 1, 0, 2, 14), Color(1, 1, 1, 0.9))
 		draw_string(Game.FONT, Vector2(w + 10, 12), "ULT!" if ready else "MANA", HORIZONTAL_ALIGNMENT_LEFT, -1, 8,
 				Color(1.0, 0.9, 0.3) if ready else Color(0.55, 0.75, 1.0))
+
+
+## The stage at a glance, top right: one pixel per tile, every zone, portals, the goal,
+## chests, and a dot for each hero. (Settings > MINIMAP turns it off.)
+class Minimap extends Control:
+	var t = 0.0
+
+	func _ready():
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	func _process(delta):
+		t += delta
+		queue_redraw()
+
+	func _draw():
+		var level = Game.level_node
+		if Game.settings.minimap == 0 or level == null or not is_instance_valid(level) or level.get("minimap") == null:
+			return
+		var tex = level.minimap
+		var s = min(2.0, 300.0 / tex.get_width(), 170.0 / tex.get_height())
+		var w = tex.get_width() * s
+		var h = tex.get_height() * s
+		var o = Vector2(size.x - w - 22, 104)
+		draw_rect(Rect2(o - Vector2(6, 6), Vector2(w + 12, h + 12)), Color(0.03, 0.04, 0.1, 0.62))
+		for i in level.zones.size():
+			var z = level.zones[i]
+			var r = Rect2(o + Vector2(0, z.y0 * s), Vector2(z.w * s, z.h * s))
+			draw_rect(r, Color(0.3, 0.5, 0.8, 0.22) if i == level.zone_i else Color(1, 1, 1, 0.05))
+			if i == level.zone_i:
+				draw_rect(r, Color(0.5, 0.8, 1.0, 0.8), false, 1.0)
+		draw_texture_rect(tex, Rect2(o, Vector2(w, h)), false)
+		var k = s / 16.0
+		for p in level.portals:
+			draw_rect(Rect2(o + p * k - Vector2(2, 5), Vector2(4, 5)), Color(0.4, 0.95, 1.0, 0.6 + 0.4 * sin(t * 6.0)))
+		if level.goal_pos != null:
+			draw_rect(Rect2(o + level.goal_pos * k - Vector2(1, 7), Vector2(2, 7)), Color.WHITE)
+			draw_rect(Rect2(o + level.goal_pos * k - Vector2(-1, 7), Vector2(4, 3)), Color(0.95, 0.3, 0.35))
+		for c in get_tree().get_nodes_in_group("chests"):
+			draw_rect(Rect2(o + c.global_position * k - Vector2(2, 4), Vector2(5, 4)), Color(1.0, 0.82, 0.25))
+		for d in get_tree().get_nodes_in_group("doors"):
+			draw_rect(Rect2(o + d.global_position * k - Vector2(2, 5), Vector2(4, 5)), Color(0.8, 0.55, 1.0))
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if not e.dead and (e.is_boss or e.captain):
+				draw_rect(Rect2(o + e.global_position * k - Vector2(3, 3), Vector2(6, 6)), Color(1.0, 0.25, 0.25, 0.6 + 0.4 * sin(t * 8.0)))
+		for p in level.players:
+			if not p.dead:
+				var col = Game.PLAYER_COLORS[p.slot] if Game.players.size() > 1 else Color(0.4, 1.0, 0.5)
+				draw_rect(Rect2(o + p.global_position * k - Vector2(2, 4), Vector2(4, 4)), col)
+		draw_string(Game.FONT, o + Vector2(0, h + 16), "ZONE %d / %d" % [level.zone_i + 1, level.zones.size()], HORIZONTAL_ALIGNMENT_RIGHT, w, 8, Color(0.7, 0.85, 1.0))

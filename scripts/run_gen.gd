@@ -3,14 +3,16 @@ extends RefCounted
 
 const LevelData = preload("res://scripts/level_data.gd")
 
-const MAP_ROWS = 6      # rows of nodes before the boss
+const MAP_ROWS = 8      # rows of nodes before the boss
 const LANES = 3
 
 # Who shows up in each act (random spawns and ambush waves).
 const ROSTER = [
 	["pinky", "slime", "hopper", "grump", "bat", "spiky", "shield", "slime_purple"],
+	["fish", "fish", "fish", "piranha", "skelefish", "puffer", "puffer", "eel", "grump", "pinky", "spiky"],
 	["pinky", "hopper", "charger", "bomber", "kamikaze", "splitter", "ghost", "grump", "shield", "spiky"],
 	["charger", "kamikaze", "shaman", "sniper", "ghost", "bomber", "shield", "splitter", "slime_purple", "hopper"],
+	["ghost", "ghost", "shaman", "sniper", "kamikaze", "charger", "bomber", "bat", "shield", "spiky", "splitter"],
 ]
 
 const TITLES = {
@@ -18,6 +20,7 @@ const TITLES = {
 	"autumn": ["SUNSET RIDGE", "OLIVE GROVE", "HARVEST ROAD"],
 	"medina": ["SIDI BOU ROOFTOPS", "THE BLUE MEDINA", "SOUK ALLEYS"],
 	"swamp": ["SLIME MARSH", "THE GREEN BOG"],
+	"ocean": ["THE SUNKEN MEDINA", "CORAL GARDENS", "KERKENNAH DEEP", "THE BLUE HOLE"],
 	"sahara": ["DUNES OF DOUZ", "THE GREAT ERG", "CAMEL ROAD"],
 	"night": ["MOONLIT WOODS", "MIDNIGHT OASIS"],
 	"ice": ["FROSTY PEAKS", "CHAAMBI SUMMIT"],
@@ -48,7 +51,7 @@ static func make_map(act, map_seed):
 		rows.append(row)
 	# guaranteed stops: a tavern in the middle, a minigame early on
 	_force(rows[3], "tavern", rng)
-	_force(rows[1 + rng.randi() % 2], "gallery" if act == 1 or rng.randf() < 0.5 else "sky", rng)
+	_force(rows[1 + rng.randi() % 2], "gallery" if Game.ACTS[act].boss == "sky" or rng.randf() < 0.5 else "sky", rng)
 	var boss_type = "boss_sky" if Game.ACTS[act].boss == "sky" else "boss"
 	rows.append([null, {"type": boss_type, "lane": 1, "links": [], "seed": rng.randi()}, null])
 	for r in rows.size() - 1:
@@ -78,9 +81,11 @@ static func _node_type(act, r, rng):
 		return "arena"
 	if roll < 0.84:
 		return "elite" if r >= 2 else "fight"
-	if roll < 0.93:
+	if roll < 0.89:
 		return "gallery"
-	return "sky" if act != 1 else "gallery"
+	if roll < 0.95:
+		return "event"
+	return "sky" if Game.ACTS[act].boss != "sky" else "gallery"
 
 
 ## Every reusable middle chunk, cleaned up: no start, goal, checkpoint, signs or ceilings.
@@ -135,6 +140,9 @@ static func make_stage(act, row, type, stage_seed, depth):
 	}
 	var names = TITLES.get(theme, ["SOMEWHERE"])
 	stage.title = names[rng.randi() % names.size()]
+	if theme == "ocean":
+		stage.water = true
+		stage.notes.append("UNDER WATER: JUMP TO SWIM!")
 	if theme == "ice":
 		stage.slip = 0.3
 		stage.notes.append("SLIPPERY!")
@@ -144,16 +152,21 @@ static func make_stage(act, row, type, stage_seed, depth):
 
 	if type == "boss":
 		var kind = Game.ACTS[act].boss
-		if not LevelData.BOSS_ARENAS.has(kind):
-			kind = "boss"
-		stage.theme = "swamp" if kind == "queen" else "castle"
-		stage.title = "QUEEN SLIME'S SWAMP" if kind == "queen" else "KING PINKY'S THRONE"
-		stage.chunks = [LevelData.START, LevelData.BOSS_ARENAS[kind]]
+		var arena = LevelData.BOSS_ARENAS.get(kind, LevelData.BOSS_ARENAS["boss"])
+		if kind == "ghoula":
+			arena = arena.replace("K", "W")
+		elif kind == "puffer_king":
+			arena = arena.replace("K", "U")
+		stage.theme = {"queen": "swamp", "ghoula": "night", "puffer_king": "ocean"}.get(kind, "castle")
+		stage.title = {"queen": "MAMA REX'S NEST", "ghoula": "THE GHOULA'S LAIR", "puffer_king": "SIDI PUFFER'S REEF"}.get(kind, "KING PINKY'S THRONE")
+		stage.chunks = [LevelData.START, arena]
 		stage.time = 300
 		stage.pay = 40 + 20 * act
 		stage.erase("slip")
 		stage.erase("gravity")
 		stage.notes = ["BOSS!"]
+		if stage.theme != "ocean":
+			stage.erase("water")
 		return stage
 	if type == "arena":
 		stage.kind = "arena"
@@ -163,16 +176,53 @@ static func make_stage(act, row, type, stage_seed, depth):
 		stage.waves = []
 		for w in 3:
 			var wave = []
-			for i in 3 + act + w + depth / 5:
+			for i in 4 + act + w + depth / 4:
 				wave.append(ROSTER[act][rng.randi() % ROSTER[act].size()])
 			stage.waves.append(wave)
 		stage.notes.append("SURVIVE 3 WAVES!")
 		stage.pay += 4
 		return stage
 
-	# fight / elite: a road made of random chunks
-	var pool = mids().filter(func(m): return m[0] <= act)
+	# fight / elite: zones stacked on top of each other and linked by portals:
+	# roads to the right, roads to the left, towers to climb or to descend.
 	var count = 3 + act + (1 if rng.randf() < 0.4 else 0)
+	stage.extra = 5 + act * 2 + depth / 3
+	stage.captain = type == "elite" or rng.randf() < 0.35
+	if type == "elite":
+		stage.title = "ELITE PATROL: " + stage.title
+		stage.elites = 3 + act
+		stage.extra += 1
+		stage.pay += 8
+		stage.notes.append("ELITE ENEMIES. BETTER REWARD.")
+	elif theme != "space" and rng.randf() < 0.16:
+		# one long road and a screen that will not wait
+		stage.scroll = 26.0 + 3.0 * act
+		stage.zones = [_road(rng, act, 1, count)]
+		stage.time = 150 + 35 * count
+		stage.notes.append("THE SCREEN MOVES ON ITS OWN - KEEP UP!")
+		return stage
+	var first = max(1, count / 2)
+	var floors = 4 + rng.randi() % 3
+	match rng.randi() % 5:
+		0:
+			stage.zones = [_road(rng, act, 1, first), _road(rng, act, -1, count - first)]
+		1:
+			stage.zones = [_road(rng, act, 1, first), tower(true, floors), _road(rng, act, -1, max(count - first, 1))]
+		2:
+			stage.zones = [tower(false, floors), _road(rng, act, 1, count - 1)]
+		3:
+			stage.zones = [_road(rng, act, 1, first), tower(false, floors), _road(rng, act, 1, max(count - first, 1))]
+		_:
+			stage.zones = [_road(rng, act, -1, first), tower(true, floors), _road(rng, act, 1, max(count - first, 1))]
+	stage.time = 170 + 35 * count + 25 * stage.zones.size()
+	if stage.captain:
+		stage.notes.append("A CAPTAIN GUARDS THE END. HE CARRIES A CHEST.")
+	return stage
+
+
+## A road zone: START + `count` random chunks + END. dir -1 = built mirrored, walked right to left.
+static func _road(rng, act, dir, count):
+	var pool = mids().filter(func(m): return m[0] <= act)
 	var chunks = [LevelData.START]
 	var last = -1
 	for i in count:
@@ -185,16 +235,38 @@ static func make_stage(act, row, type, stage_seed, depth):
 		last = pick
 		chunks.append(pool[pick][1])
 	chunks.append(LevelData.END)
-	stage.chunks = chunks
-	stage.time = 150 + 35 * count
-	stage.extra = 3 + act * 2 + depth / 3
-	if type == "elite":
-		stage.title = "ELITE PATROL: " + stage.title
-		stage.elites = 2 + act
-		stage.extra += 1
-		stage.pay += 8
-		stage.notes.append("ELITE ENEMIES. BETTER REWARD.")
-	elif theme != "space" and rng.randf() < 0.22:
-		stage.scroll = 26.0 + 3.0 * act
-		stage.notes.append("THE SCREEN MOVES ON ITS OWN - KEEP UP!")
-	return stage
+	return {"type": "road", "dir": dir, "chunks": chunks}
+
+
+## A tower zone: floors with a gap on alternating sides. Springs throw you up through the gaps.
+## up = enter at the bottom and leave at the top; otherwise the other way round.
+static func tower(up, floors):
+	var w = 24
+	var h = floors * 4 + 6
+	var grid = []
+	for y in h:
+		grid.append("X" + ".".repeat(w - 2) + "X")
+	grid[h - 1] = "#".repeat(w)
+	grid[h - 2] = "#".repeat(w)
+	for k in range(1, floors + 1):
+		var y = h - 2 - 4 * k
+		var left = k % 2 == 1
+		var gap = 2 if left else w - 7
+		var line = "X"
+		for x in range(1, w - 1):
+			line += "." if (x >= gap and x < gap + 5) else "#"
+		grid[y] = line + "X"
+		# a spring right under the gap, on the floor below, and a few coins to mark the way
+		var below = y + 3 if k > 1 else h - 3
+		grid[below] = _put(grid[below], gap + 2, "S")
+		grid[y - 1] = _put(grid[y - 1], gap + 2, "o")
+		grid[y + 1] = _put(grid[y + 1], w - 1 - (gap + 2), "o")
+	var top = h - 3 - 4 * floors
+	var top_x = 12 if floors % 2 == 1 else 10
+	grid[top] = _put(grid[top], top_x, "G" if up else "P")
+	grid[h - 3] = _put(grid[h - 3], 20 if not up else 12, "P" if up else "G")
+	return {"type": "tower", "dir": 1, "rows": grid}
+
+
+static func _put(line, x, ch):
+	return line.substr(0, x) + ch + line.substr(x + 1)

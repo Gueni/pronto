@@ -5,7 +5,7 @@ extends Control
 const Menu = preload("res://scripts/menu.gd")
 
 const RUMORS = [
-	"THE QUEEN LEAPS ON YOU. JUMP OVER THE SHOCKWAVES WHEN SHE LANDS.",
+	"MAMA REX LEAPS ON YOU. JUMP OVER THE SHOCKWAVES WHEN SHE LANDS.",
 	"THE KING IS DIZZY AFTER HE RAMS A WALL. THAT'S YOUR MOMENT.",
 	"SPIKY SLIMES: SANDAL, NEVER STOMP.",
 	"SHIELD GUYS BLOCK WHAT COMES FROM THE FRONT. JUMP ON THEIR HEADS.",
@@ -13,7 +13,7 @@ const RUMORS = [
 	"A SHAMAN WARDS HIS FRIENDS. KILL HIM FIRST.",
 	"RED LINE ON THE GROUND? A SNIPER IS AIMING. MOVE.",
 	"THE ONES WITH A FUSE ON THEIR HEAD BLOW UP THEIR OWN FRIENDS TOO.",
-	"DINARS ARE PAID WHEN THE RUN ENDS. SPEND THEM AT THE CAMP.",
+	"BARAKA IS PAID WHEN THE RUN ENDS. SPEND IT AT THE CAMP.",
 ]
 
 var menu
@@ -37,9 +37,7 @@ func _ready():
 
 	var vs = get_viewport_rect().size
 	# The barkeeper behind his counter, the heroes at the door.
-	var keeper = AnimatedSprite2D.new()
-	keeper.sprite_frames = Game.frames_for(Game.PINK)
-	keeper.material = Game.hue_material(0.14)
+	var keeper = Game.puppet("keeper")
 	keeper.scale = Vector2(6, 6)
 	keeper.flip_h = true
 	keeper.position = Vector2(vs.x - 190, vs.y - 262)
@@ -108,11 +106,11 @@ func _item(text, desc, act):
 func _build(keep):
 	items = []
 	for b in stock:
-		_item("%s   %d G" % [b.name, _price()], b.desc, _buy_boon.bind(b))
-	_item("FRUIT PIE   12 G", "HEALS EVERY HERO COMPLETELY.", _pie)
-	_item("PRONTO PUNCH   15 G", "EVERYONE GETS A FULL MANA BAR.", _punch)
-	_item("EXTRA LIFE   50 G", "ONE MORE TRY. YOU HAVE %d." % Game.lives, _life)
-	_item("DOUBLE OR NOTHING   10 G", "BET 10 GOLD ON THE BARKEEPER'S DICE. WIN 20.", _bet)
+		_item("%s   %d DAN" % [b.name, _price()], b.desc, _buy_boon.bind(b))
+	_item("FRUIT PIE   12 DAN", "HEALS EVERY HERO COMPLETELY.", _pie)
+	_item("PRONTO PUNCH   15 DAN", "EVERYONE GETS A FULL MANA BAR.", _punch)
+	_item("EXTRA LIFE   50 DAN", "ONE MORE TRY. YOU HAVE %d." % Game.lives, _life)
+	_item("DOUBLE OR NOTHING   10 DAN", "BET 10 DAN ON THE BARKEEPER'S DICE. WIN 20.", _bet)
 	_item("RUMOR   FREE", "THE BARKEEPER HEARS THINGS.", func(): _say(RUMORS[randi() % RUMORS.size()]))
 	_item("BACK ON THE ROAD", "LEAVE THE TAVERN.", func(): Game.node_done())
 	var texts = []
@@ -131,7 +129,7 @@ func _on_chosen(i):
 
 func _pay(price):
 	if Game.gold < price:
-		_say("NOT ENOUGH GOLD. COME BACK RICHER!")
+		_say("NOT ENOUGH DAN. COME BACK RICHER!")
 		Game.sfx("tap", 0.5)
 		return false
 	Game.gold -= price
@@ -181,7 +179,7 @@ func _bet():
 		if randf() < 0.45:
 			Game.gold += 20
 			Game.sfx("power_up", 1.3)
-			_say("SIX! YOU WIN 20 GOLD. BEGINNER'S LUCK...")
+			_say("SIX! YOU WIN 20 DAN. BEGINNER'S LUCK...")
 		else:
 			Game.sfx("hurt", 0.8)
 			_say("ONE. THE HOUSE WINS. HEHEHE.")
@@ -193,7 +191,15 @@ func _say(text):
 
 
 func _process(delta):
-	gold_l.text = "GOLD  %d" % Game.gold
+	if not Game.busy and Input.is_action_just_pressed("m_back"):
+		# circle: first to BACK ON THE ROAD, a second press leaves
+		if menu.index == items.size() - 1:
+			Game.node_done()
+		else:
+			menu.index = items.size() - 1
+			menu._refresh()
+			Game.sfx("tap", 0.7)
+	gold_l.text = "DAN  %d" % Game.gold
 	var parts = []
 	for i in Game.players.size():
 		parts.append("%s %d/%d" % [Game.char_of(i).name, Game.players[i].hearts, Game.max_hearts(i)])

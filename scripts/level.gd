@@ -19,6 +19,7 @@ var finished = false
 var time_up = false
 var kill_y = INF
 var slip = 1.0
+var water = false   # an underwater stage: heroes swim
 var grav = 1.0   # gravity multiplier for the heroes (low on the moon)
 var scroll = 0.0  # auto-scroll speed in px/s (0 = the camera follows the heroes)
 var scroll_x = 0.0
@@ -79,6 +80,8 @@ func setup():
 		camera.limit_bottom = limit_bottom
 	add_child(camera)
 	camera.make_current()
+	if limits != null:
+		camera.set_limits(limits)
 
 	Game.time_left = time_limit
 	Game.stats_changed.emit()

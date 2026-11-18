@@ -17,7 +17,7 @@ var boss_hp = 100.0
 var boss_max = 100.0
 var is_boss = false   # act boss (must win) or a minigame stop on the map
 var boss_hit = 0.0
-var boss_sprite: AnimatedSprite2D
+var boss_sprite
 var time = 0.0
 var next_pattern = 2.5
 var pattern = 0
@@ -40,9 +40,7 @@ func _ready():
 		add_child(s)
 		ships.append({"slot": i, "pos": Vector2(160, vs.y * (i + 1) / (Game.players.size() + 1.0)),
 				"hp": 3, "inv": 2.0, "fire": 0.0, "roll": 0.0, "roll_cd": 0.0, "sprite": s})
-	boss_sprite = AnimatedSprite2D.new()
-	boss_sprite.sprite_frames = Game.frames_for(Game.OWLET)
-	boss_sprite.material = Game.hue_material(0.62)
+	boss_sprite = Game.puppet("baron")
 	boss_sprite.scale = Vector2(7, 7)
 	boss_sprite.flip_h = true
 	boss_sprite.z_index = 1
@@ -205,7 +203,7 @@ func _finish(won):
 	var pay = 20 + 6 * hearts if won else 5
 	if is_boss and won:
 		pay += 40
-	result = ("BARON BAT IS DOWN!\n\n+%d GOLD AND A BOON" if won else "SHOT DOWN...\n\n+%d GOLD FOR TRYING") % pay
+	result = ("BARON BAT IS DOWN!\n\n+%d DAN AND A BOON" if won else "SHOT DOWN...\n\n+%d DAN FOR TRYING") % pay
 	if is_boss and not won:
 		result = "SHOT DOWN...\n\n" + ("ONE LIFE LOST. AGAIN!" if Game.lives > 0 else "NO LIVES LEFT.")
 	Game.sfx("power_up" if won else "explosion", 1.0 if won else 0.6)

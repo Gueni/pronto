@@ -2,12 +2,12 @@ extends Node2D
 ## All the baddies. Origin is 16px (times the scale) above the feet.
 ## kind: pinky (walker), grump (rock thrower), slime, slime_purple (fast, 2 hits),
 ##       spiky (slime you must NOT stomp), bat (flies in waves), charger (rushes at heroes),
-##       queen (QUEEN SLIME, boss), boss (KING PINKY, final boss).
+##       queen (MAMA REX, the giant dinosaur boss), boss (KING PINKY, final boss).
 ## Bosses run a small state machine with telegraphed attacks and three phases (see _boss).
 
 const Rock = preload("res://scripts/rock.gd")
 const Wave = preload("res://scripts/wave.gd")
-const SCALES = {"boss": 2.0, "queen": 3.0, "bat": 0.85, "bomber": 0.9, "splitter": 1.7}
+const SCALES = {"puffer_king": 3.0, "ghoula": 2.7, "boss": 2.4, "queen": 5.0, "bat": 0.85, "bomber": 0.9, "splitter": 1.7, "mimic": 1.3}
 # What they shout. spot = sees a hero, hurt = got hit, win = hurt a hero.
 const LINES = {
 	"pinky": {"spot": ["HEY! YOU!", "GET HIM!", "INTRUDER!"], "hurt": ["OW!"], "win": ["HA!", "GOT YOU!"]},
@@ -25,14 +25,20 @@ const LINES = {
 	"kamikaze": {"spot": ["FOR THE KING!!", "WITNESS ME!"], "win": ["WORTH IT!"]},
 	"shaman": {"spot": ["OOGA.", "THE SPIRITS SEE YOU."], "hurt": ["BAD OMEN!"], "win": ["CURSED."]},
 	"sniper": {"spot": ["TARGET ACQUIRED.", "HOLD STILL."], "hurt": ["MISSED?!"], "win": ["HEADSHOT."]},
-	"queen": {"spot": ["WHO DARES?!"], "hurt": ["MY CROWN!", "INSOLENT!"], "win": ["SQUISHED!"]},
+	"queen": {"spot": ["ROOOAAAR!!", "FRESH MEAT!"], "hurt": ["MY TAIL!", "GRRRR!"], "win": ["CRUNCH!", "TASTY."]},
+	"ghoula": {"spot": ["I FOLLOWED YOU ALL THE WAY HERE."], "hurt": ["HSSSSS!", "YOU CAN SEE ME?!"], "win": ["MINE.", "SLEEP NOW."]},
+	"puffer_king": {"spot": ["BLUB. WHO WOKE ME UP?"], "hurt": ["BLUB!!", "MY SPINES!"], "win": ["BLUB BLUB BLUB."]},
 	"boss": {"spot": ["BOW TO YOUR KING!"], "hurt": ["GUARDS!!", "THAT HURT, PEASANT!"], "win": ["KNEEL!", "HAHAHA!"]},
 }
-const BOSS_NAMES = {"boss": "KING PINKY", "queen": "QUEEN SLIME"}
+# Sea creatures are new skins (and a few tweaks) on enemies that already know how to behave.
+const SKINS = {"fish": "bat", "piranha": "bat", "puffer": "bat", "skelefish": "ghost", "eel": "charger"}
+const BOSS_NAMES = {"puffer_king": "SIDI PUFFER", "boss": "KING PINKY", "queen": "MAMA REX", "ghoula": "THE GHOULA"}
 const GOLD = {"slime": 1, "pinky": 2, "bat": 2, "hopper": 2, "slime_purple": 3, "grump": 3, "spiky": 3, "bomber": 3,
-	"kamikaze": 3, "splitter": 3, "charger": 4, "shield": 4, "ghost": 4, "sniper": 5, "shaman": 6, "queen": 60, "boss": 100}
+	"kamikaze": 3, "splitter": 3, "zombie": 1, "mimic": 30, "charger": 4, "shield": 4, "ghost": 4, "sniper": 5, "shaman": 6, "queen": 60, "boss": 100, "ghoula": 150, "puffer_king": 80}
 const PLANS = {
-	"queen": [["hops", "spit", "big", "summon"], ["hops", "big", "spit", "big", "summon"], ["big", "spit", "big", "hops", "summon"]],
+	"queen": [["hops", "spit", "big", "summon"], ["hops", "rain", "big", "spit", "summon"], ["big", "rain", "spit", "big", "hops", "summon"]],
+	"ghoula": [["walk", "orbs", "vanish", "walk", "leap"], ["vanish", "orbs", "charge", "rain", "vanish"], ["vanish", "orbs", "charge", "summon", "vanish", "leap", "rain"]],
+	"puffer_king": [["walk", "orbs", "charge", "leap"], ["charge", "orbs", "leap", "summon", "walk"], ["charge", "orbs", "leap", "charge", "summon", "orbs"]],
 	"boss": [["walk", "charge", "walk", "leap"], ["walk", "charge", "leap", "rain"], ["charge", "leap", "rain", "summon", "charge"]],
 }
 
@@ -60,6 +66,7 @@ var home = Vector2.ZERO
 var t = 0.0
 var hit_size = Vector2(13, 22)
 var elite = false       # set before entering the tree: bigger, tougher, richer
+var captain = false     # mini-boss: huge, very tough, drops a chest
 var stun = 0.0          # seconds of doing nothing (Shee's decree, Gueni's smoke)
 var ward = false        # a shaman's ward: absorbs one hit
 var fly_range = 56.0
@@ -67,6 +74,8 @@ var act_t = 1.5         # timer of the kind's special action
 var hopping = false
 var lit = false         # kamikaze fuse
 var fuse = 0.0
+var skin = ""           # the look, when it is not the kind (sea creatures)
+var prickly = false     # puffer fish: never stomp one
 var solid = true        # ghosts are untouchable while not solid
 var aim_t = 0.0         # sniper: time left before the shot
 var aim_at = Vector2.ZERO
@@ -89,7 +98,7 @@ var jump_h = 0.0
 var jump_time = 1.0
 var slam = false
 
-var sprite: AnimatedSprite2D
+var sprite   # a hand-drawn Puppet (see puppet.gd)
 var hitbox: Area2D
 var hit_shape: CollisionShape2D
 var rays = {}
@@ -97,7 +106,13 @@ var rays = {}
 
 func _ready():
 	add_to_group("enemies")
-	sprite = AnimatedSprite2D.new()
+	skin = kind
+	if SKINS.has(kind):
+		kind = SKINS[kind]
+	sprite = Game.Puppet.new()
+	sprite.look = skin
+	if skin == "fish":
+		sprite.look = ["fish", "fish_b", "fish_c", "fish_d"][randi() % 4]
 	add_child(sprite)
 	var s = SCALES.get(kind, 1.0)
 	scale = Vector2(s, s)
@@ -106,8 +121,6 @@ func _ready():
 		"slime", "slime_purple", "queen", "spiky", "splitter":
 			is_slime = true
 			var purple = kind == "slime_purple" or kind == "queen"
-			sprite.sprite_frames = Game.slime_frames("res://assets/sprites/slime_purple.png" if purple else "res://assets/sprites/slime_green.png")
-			sprite.position = Vector2(0, 4)
 			sprite.play("walk")
 			speed = 55.0 if purple else 24.0
 			hp = 2 if purple else 1
@@ -115,21 +128,18 @@ func _ready():
 			hit_size = Vector2(13, 11)
 			hit_pos = Vector2(0, 10)
 			if kind == "queen":
-				sprite.material = Game.hue_material(0.42)
+				hit_size = Vector2(19, 15)
+				hit_pos = Vector2(0, 8)
 				speed = 0.0
-				hp = 12
+				hp = 16
 				score_value = 3000
 			elif kind == "spiky":
-				sprite.material = Game.hue_material(0.62)
 				score_value = 300
 			elif kind == "splitter":
-				sprite.material = Game.hue_material(0.2)
 				hp = 2
 				speed = 20.0
 				score_value = 300
 		"grump":
-			sprite.sprite_frames = Game.frames_for(Game.PINK)
-			sprite.material = Game.hue_material(0.14)
 			sprite.play("idle")
 			sprite.animation_finished.connect(func(): if not dead: sprite.play("idle"))
 			speed = 0.0
@@ -137,31 +147,36 @@ func _ready():
 			throw_range = 150.0
 		"bat":
 			fly = true
-			sprite.sprite_frames = Game.frames_for(Game.OWLET)
-			sprite.material = Game.hue_material(0.62)
 			sprite.play("run")
 			speed = 40.0
 			score_value = 300
 			hit_size = Vector2(14, 16)
 			hit_pos = Vector2(0, 6)
 		"charger":
-			sprite.sprite_frames = Game.frames_for(Game.PINK)
-			sprite.material = Game.hue_material(0.5)
 			sprite.play("walk")
 			speed = 30.0
 			hp = 2
 			score_value = 400
 		"hopper":
-			sprite.sprite_frames = Game.frames_for(Game.DUDE)
-			sprite.material = Game.hue_material(0.3)
 			sprite.play("idle")
 			speed = 0.0
 			score_value = 250
 			arena_l = -1000000.0
 			arena_r = 1000000.0
+		"mimic":
+			sprite.play("idle")
+			speed = 0.0
+			hp = 4
+			score_value = 800
+			arena_l = -1000000.0
+			arena_r = 1000000.0
+			act_t = 0.6
+		"zombie":
+			sprite.play("walk")
+			speed = 20.0
+			hp = 2
+			score_value = 100
 		"shield":
-			sprite.sprite_frames = Game.frames_for(Game.PINK)
-			sprite.material = Game.hue_material(0.3)
 			sprite.play("walk")
 			speed = 28.0
 			hp = 2
@@ -169,65 +184,71 @@ func _ready():
 		"bomber":
 			fly = true
 			fly_range = 96.0
-			sprite.sprite_frames = Game.frames_for(Game.OWLET)
-			sprite.material = Game.hue_material(0.9)
 			sprite.play("run")
 			speed = 48.0
 			score_value = 350
 			hit_size = Vector2(14, 16)
 			hit_pos = Vector2(0, 6)
 		"ghost":
-			sprite.sprite_frames = Game.frames_for(Game.OWLET)
-			sprite.material = Game.hue_material(0.55)
 			sprite.play("idle")
 			speed = 24.0
 			hp = 2
 			score_value = 400
 		"kamikaze":
-			sprite.sprite_frames = Game.frames_for(Game.DUDE)
-			sprite.material = Game.hue_material(0.45)
 			sprite.play("walk")
 			speed = 32.0
 			score_value = 300
 		"shaman":
-			sprite.sprite_frames = Game.frames_for(Game.OWLET)
-			sprite.material = Game.hue_material(0.4)
 			sprite.play("idle")
 			speed = 0.0
 			hp = 2
 			score_value = 500
 			act_t = 2.0
 		"sniper":
-			sprite.sprite_frames = Game.frames_for(Game.PINK)
-			sprite.material = Game.hue_material(0.7)
 			sprite.play("idle")
 			speed = 0.0
 			score_value = 450
-		"boss":
-			sprite.sprite_frames = Game.frames_for(Game.PINK)
+		"boss", "ghoula", "puffer_king":
 			sprite.play("idle")
 			speed = 0.0
-			hp = 16
+			hp = {"ghoula": 22, "puffer_king": 18}.get(kind, 20)
 			score_value = 5000
 			throw_range = 260.0
 			throw_interval = 1.5
 		_:
-			sprite.sprite_frames = Game.frames_for(Game.PINK)
 			sprite.play("walk")
+	match skin:
+		"piranha":
+			speed *= 1.7
+			hp = 2
+			score_value = 500
+		"puffer":
+			prickly = true
+			speed *= 0.6
+			score_value = 400
+		"eel":
+			speed *= 1.2
 	is_boss = BOSS_NAMES.has(kind)
 	if not is_boss:
 		# The deeper the run, the quicker, meaner and tougher everything gets.
 		var d = Game.danger()
-		speed *= 1.0 + 0.02 * d
+		speed *= min(1.75, 1.0 + 0.022 * d)
 		throw_interval *= max(0.55, 1.0 - 0.03 * d)
-		hp += int(d / 8.0)
-		if elite:
+		hp += int(d / 7.0)
+		if captain:
+			scale *= 1.9
+			hp = hp * 3 + 5
+			speed *= 1.1
+			score_value *= 6
+			elite = true
+		elif elite:
 			scale *= 1.3
 			hp = hp * 2 + 1
 			speed *= 1.15
 			score_value *= 3
 	else:
 		hp = max(hp - 2 * Game.meta_level("muscle"), 4) + 2 * (Game.players.size() - 1)
+		hp = max(3, int(round(hp * Game.mode().boss)))
 	max_hp = hp
 	max_speed = speed * 2.2
 	home = position
@@ -319,8 +340,14 @@ func _physics_process(delta):
 			_bomb(delta)
 	elif kind == "charger":
 		_charge(delta)
-	elif kind == "hopper":
+	elif kind == "hopper" or kind == "mimic":
 		_hop(delta)
+	elif kind == "zombie":
+		var prey = _nearest_player()
+		if prey != null:
+			direction = 1 if prey.global_position.x > global_position.x else -1
+		_walk(delta, speed)
+		sprite.flip_h = direction < 0
 	elif kind == "ghost":
 		_haunt(delta)
 	elif kind == "kamikaze":
@@ -382,18 +409,6 @@ func _draw():
 		return
 	if elite:
 		draw_circle(Vector2(0, 6), 15.0 + sin(t * 6.0) * 1.5, Color(1.0, 0.85, 0.3, 0.28))
-	if fly:
-		var flap = sin(t * 18.0) * 6.0
-		for side in [-1, 1]:
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(side * 4, 2), Vector2(side * 19, -6 + flap), Vector2(side * 13, 7 + flap * 0.3)]),
-				Color(0.2, 0.12, 0.3))
-	elif kind == "spiky":
-		for i in 4:
-			var x = -7.0 + i * 3.6
-			draw_colored_polygon(PackedVector2Array([Vector2(x, 9), Vector2(x + 1.8, 0), Vector2(x + 3.6, 9)]), Color(0.92, 0.92, 1.0))
-			draw_line(Vector2(x, 9), Vector2(x + 1.8, 0), Color(0.15, 0.1, 0.2), 0.8)
-			draw_line(Vector2(x + 1.8, 0), Vector2(x + 3.6, 9), Color(0.15, 0.1, 0.2), 0.8)
 
 
 func _nearest_player():
@@ -437,9 +452,13 @@ func _throw_rock(vel, tint = Color.WHITE):
 func _touch(p):
 	if p.dead or dead or not solid:
 		return
+	if p.star > 0:
+		# a hero with a star just runs through
+		damage(false, 1 if is_boss else 4)
+		return
 	var top = hit_shape.global_position.y - hit_size.y * 0.5 * scale.y
 	if p.velocity.y > 0 and p.global_position.y < top + 9 * scale.y:
-		if kind == "spiky" and not p.protected():
+		if (kind == "spiky" or prickly) and not p.protected():
 			# Ouch: spikes. Use rocks, moves or ultimates instead.
 			p.hurt(global_position.x)
 			return
@@ -499,6 +518,10 @@ func _die(stomped):
 	queue_redraw()
 	Game.add_score(score_value, global_position)
 	var loot = GOLD.get(kind, 1) * (4 if elite else 1) * (1.0 + 0.5 * Game.up("magnet"))
+	if captain and Game.level_node != null and is_instance_valid(Game.level_node) and Game.level_node.has_method("spawn_chest"):
+		Game.level_node.spawn_chest(global_position + Vector2(0, -12))
+		Game.popup("CAPTAIN DOWN!", global_position + Vector2(0, -20 * scale.y), Color(1.0, 0.85, 0.3))
+		Game.shake(5.0)
 	Game.add_gold(int(ceil(loot)), global_position)
 	Game.add_kill()
 	if bubble:
@@ -555,7 +578,10 @@ func _boss_death():
 	await get_tree().create_timer(0.9, false).timeout
 	visible = false
 	if Game.level_node and is_instance_valid(Game.level_node):
-		Game.level_node.complete()
+		if Game.level_node.has_method("boss_dead"):
+			Game.level_node.boss_dead(Vector2(position.x, home.y + 16 * scale.y))
+		else:
+			Game.level_node.complete()
 
 
 # ---------------------------------------------------------------- characters
@@ -601,7 +627,7 @@ func _hop(delta):
 		state_t += delta
 		if _jump_step(state_t):
 			hopping = false
-			act_t = 0.55
+			act_t = 0.3 if kind == "mimic" else 0.55
 			sprite.play("idle")
 		return
 	act_t -= delta
@@ -749,26 +775,28 @@ func draw_deco(c):
 	if stun > 0:
 		for i in 3:
 			var a = t * 6.0 + i * TAU / 3.0
-			c.draw_circle(Vector2(cos(a) * 8.0, -9 + sin(a) * 2.5), 1.6, Color(1.0, 0.95, 0.4))
+			c.draw_circle(Vector2(cos(a) * 8.0, -13 + sin(a) * 2.5), 1.6, Color(1.0, 0.95, 0.4))
 	if ward:
 		c.draw_arc(Vector2(0, 5), 14.0, 0, TAU, 24, Color(0.5, 0.75, 1.0, 0.9), 1.5)
+	if captain:
+		c.draw_arc(Vector2(0, 4), 17.0 + sin(t * 5.0), 0, TAU, 24, Color(1.0, 0.3, 0.25, 0.8), 1.2)
 	if elite:
 		for i in 3:
 			var x = -5.0 + i * 5.0
-			c.draw_colored_polygon(PackedVector2Array([Vector2(x - 2.5, -8), Vector2(x, -13), Vector2(x + 2.5, -8)]), Color(1.0, 0.85, 0.25))
+			c.draw_colored_polygon(PackedVector2Array([Vector2(x - 2.5, -13), Vector2(x, -18), Vector2(x + 2.5, -13)]), Color(1.0, 0.85, 0.25))
 	match kind:
 		"shield":
-			c.draw_rect(Rect2(direction * 7 - 2, -3, 4, 15), Color(0.7, 0.75, 0.85))
-			c.draw_rect(Rect2(direction * 7 - 2, -3, 4, 15), Color(0.15, 0.15, 0.25), false, 1.0)
+			# his guard: nothing gets through from the front
+			c.draw_arc(Vector2(direction * 3.0, 4), 12.0, -1.1 if direction > 0 else PI - 1.1, 1.1 if direction > 0 else PI + 1.1, 12, Color(0.6, 0.85, 1.0, 0.75 + 0.2 * sin(t * 8.0)), 1.6, true)
 		"shaman":
-			c.draw_colored_polygon(PackedVector2Array([Vector2(-6, -5), Vector2(0, -17), Vector2(6, -5)]), Color(0.45, 0.2, 0.6))
-			c.draw_rect(Rect2(-8, -6, 16, 2), Color(0.3, 0.12, 0.42))
+			for i in 3:
+				var a = t * 2.5 + i * TAU / 3.0
+				c.draw_circle(Vector2(cos(a) * 12.0, 2 + sin(a) * 5.0), 1.5, Color(0.8, 0.5, 1.0, 0.9))
 		"kamikaze":
-			c.draw_line(Vector2(0, -6), Vector2(2, -11), Color(0.2, 0.15, 0.1), 1.0)
+			c.draw_line(Vector2(1, -8), Vector2(3, -13), Color(0.2, 0.15, 0.1), 1.0)
 			if lit:
-				c.draw_circle(Vector2(2, -12), 2.0 + sin(t * 40.0), Color(1.0, 0.8, 0.2))
+				c.draw_circle(Vector2(3, -14), 2.0 + sin(t * 40.0), Color(1.0, 0.8, 0.2))
 		"sniper":
-			c.draw_rect(Rect2(-6, -8, 12, 3), Color(0.2, 0.3, 0.2))
 			if aim_t > 0:
 				var to = (aim_at - global_position) / scale
 				c.draw_line(Vector2.ZERO, to.normalized() * 400.0, Color(1.0, 0.2, 0.2, 0.35 + 0.4 * (1.0 - aim_t / 0.9)), 1.0)
@@ -909,7 +937,7 @@ func _boss(delta):
 				_shockwave()
 				_set_state("rest")
 
-		# --- QUEEN SLIME
+		# --- MAMA REX
 		"hops":
 			if step % 2 == 0:
 				sprite.scale = Vector2(1.1, 0.85)
@@ -940,11 +968,57 @@ func _boss(delta):
 				if is_slime:
 					_minion("spiky" if phase > 0 else "slime", -50.0)
 					_minion("slime_purple" if phase > 1 else "slime", 50.0)
+				elif kind == "puffer_king":
+					_minion("fish", -70.0)
+					_minion("piranha" if phase > 0 else "fish", 70.0)
+				elif kind == "ghoula":
+					_minion("ghost", -70.0)
+					_minion("bat" if phase < 2 else "ghost", 70.0)
 				else:
 					_minion("charger" if phase > 1 else "pinky", -60.0)
 					_minion("pinky", 60.0)
 			if state_t > 0.8 / tempo:
 				_set_state("rest")
+
+		# --- THE GHOULA
+		"vanish":
+			# melts into smoke, comes back right behind a hero and slams the ground
+			if step == 0:
+				solid = false
+				sprite.modulate.a = max(0.0, 1.0 - state_t * 2.5 * tempo)
+				if state_t > 0.5 / tempo:
+					var side = -target.facing if target else (1 if randf() < 0.5 else -1)
+					position.x = clamp(tx + side * 46.0, arena_l, arena_r)
+					_face(tx)
+					Game.ring(global_position, 30.0, Color(0.6, 0.35, 0.9), 0.4)
+					Game.sfx("explosion", 0.4, -3.0)
+					step = 1
+					state_t = 0.0
+			elif step == 1:
+				# a short warning before the slam: time to get away
+				sprite.play("throw")
+				sprite.modulate.a = min(1.0, state_t * 2.2 * tempo)
+				if state_t > 0.6 / tempo:
+					sprite.modulate.a = 1.0
+					solid = true
+					_shockwave()
+					step = 2
+					state_t = 0.0
+			elif state_t > 0.5 / tempo:
+				_set_state("rest")
+		"orbs":
+			# a fan of dark fire, twice; three times when furious
+			_face(tx)
+			sprite.play("throw")
+			if state_t > 0.45 / tempo:
+				state_t = 0.0
+				step += 1
+				for i in 5:
+					var a = deg_to_rad(-150.0 + i * 30.0 + (15.0 if step % 2 == 0 else 0.0))
+					_throw_rock(Vector2(cos(a) * 170.0 + direction * 60.0, sin(a) * 260.0 - 40.0), Color(0.7, 0.4, 1.0) if kind == "ghoula" else Color(0.6, 0.9, 1.0))
+				Game.sfx("explosion", 1.4, -4.0)
+				if step >= 2 + (1 if phase > 1 else 0):
+					_set_state("rest")
 
 		# --- KING PINKY
 		"walk":
@@ -988,6 +1062,8 @@ func _boss(delta):
 				state_t = 0.0
 				step += 1
 				var m = Marker.new()
+				if is_slime:
+					m.tint = Color(0.5, 1.0, 0.5)
 				m.position = Vector2(tx + randf_range(-70.0, 70.0) if step % 2 == 0 else randf_range(arena_l, arena_r), home.y + 16 * scale.y)
 				m.position.x = clamp(m.position.x, arena_l - 10.0, arena_r + 10.0)
 				get_parent().add_child(m)
@@ -1002,6 +1078,7 @@ class Marker extends Node2D:
 	const RockScript = preload("res://scripts/rock.gd")
 	var t = 0.0
 	var dropped = false
+	var tint = Color.WHITE
 
 	func _physics_process(delta):
 		t += delta
@@ -1011,6 +1088,7 @@ class Marker extends Node2D:
 			var r = RockScript.new()
 			r.from_player = false
 			r.big = true
+			r.tint = tint
 			r.velocity = Vector2(0, 120.0)
 			get_parent().add_child(r)
 			r.global_position = global_position + Vector2(0, -158.0)
