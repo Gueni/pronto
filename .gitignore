@@ -3,3 +3,6 @@
 /android/
 original_test_game.zip
 frames/
+
+# exported game and installer
+build/

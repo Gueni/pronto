@@ -148,16 +148,29 @@ func build():
 					tops.append(Vector2i(x, y))
 			_spawn(c, x, y)
 
-	# Invisible walls at both ends of every zone.
+	# Invisible walls at both ends of every zone, and a lid a few tiles above it.
+	# They must stay inside the zone's own rows plus half of the gap above it: zones are
+	# stacked and have different widths, so anything taller pokes into the neighbouring
+	# zone as an invisible block you bump into or stand on.
 	var walls = StaticBody2D.new()
+	var lid = ZONE_GAP / 2
 	for z in zones:
+		var top = (z.y0 - lid) * T
+		var bottom = (z.y0 + z.h) * T
 		for wx in [-8.0, z.w * T + 8.0]:
 			var c = CollisionShape2D.new()
 			var r = RectangleShape2D.new()
-			r.size = Vector2(16, z.h * T + 400)
+			r.size = Vector2(16, bottom - top)
 			c.shape = r
-			c.position = Vector2(wx, (z.y0 + z.h * 0.5) * T)
+			c.position = Vector2(wx, (top + bottom) * 0.5)
 			walls.add_child(c)
+		# the lid: no flying, swimming or jetpacking out of the top of a zone
+		var cap = CollisionShape2D.new()
+		var cr = RectangleShape2D.new()
+		cr.size = Vector2(z.w * T + 32, 16)
+		cap.shape = cr
+		cap.position = Vector2(z.w * T * 0.5, top - 8)
+		walls.add_child(cap)
 	add_child(walls)
 
 	_random_spawns(def)
